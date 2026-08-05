@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { NavLink } from "react-router-dom";
-import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetTrigger, SheetTitle } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { List, ChartLineUp } from "@phosphor-icons/react";
 import { NAV_ITEMS } from "./navItems";
@@ -16,6 +16,7 @@ export function MobileNav() {
         </Button>
       </SheetTrigger>
       <SheetContent side="left" className="w-64 p-0">
+        <SheetTitle className="sr-only">Menu de navegação</SheetTitle>
         <div className="flex items-center gap-2 px-6 h-16 border-b border-border">
           <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
             <ChartLineUp size={18} weight="bold" className="text-primary-foreground" />

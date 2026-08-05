@@ -1,5 +1,5 @@
 from collections import defaultdict
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Depends
 
 from database import db
@@ -18,7 +18,7 @@ async def summary(current_user: UserDoc = Depends(get_current_user)):
     now = datetime.now(timezone.utc)
     cur_month = now.strftime("%Y-%m")
     first_of_month = now.replace(day=1)
-    prev_month = (first_of_month.replace(day=1) - __import__("datetime").timedelta(days=1)).strftime("%Y-%m")
+    prev_month = (first_of_month - timedelta(days=1)).strftime("%Y-%m")
 
     def month_of(t):
         return t["date"][:7]

@@ -3,7 +3,7 @@ from bson import ObjectId
 
 from database import db
 from models import UserDoc
-from auth import get_current_user
+from auth import get_current_user, require_role
 
 router = APIRouter(prefix="/transactions", tags=["transactions"])
 
@@ -47,7 +47,7 @@ async def categories_list(current_user: UserDoc = Depends(get_current_user)):
 
 
 @router.delete("/{transaction_id}")
-async def delete_transaction(transaction_id: str, current_user: UserDoc = Depends(get_current_user)):
+async def delete_transaction(transaction_id: str, current_user: UserDoc = Depends(require_role("owner", "manager"))):
     result = await db.transactions.delete_one({"_id": ObjectId(transaction_id), "company_id": current_user.company_id})
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Transação não encontrada")
@@ -55,7 +55,7 @@ async def delete_transaction(transaction_id: str, current_user: UserDoc = Depend
 
 
 @router.delete("")
-async def clear_all_transactions(current_user: UserDoc = Depends(get_current_user)):
+async def clear_all_transactions(current_user: UserDoc = Depends(require_role("owner", "manager"))):
     await db.transactions.delete_many({"company_id": current_user.company_id})
     await db.customers.delete_many({"company_id": current_user.company_id})
     await db.alerts.delete_many({"company_id": current_user.company_id})
