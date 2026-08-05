@@ -1,15 +1,28 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+:root {
+    --font-heading: "Manrope", sans-serif;
+    --font-body: "IBM Plex Sans", sans-serif;
+}
+
 body {
     margin: 0;
-    font-family:
-        -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto", "Oxygen",
-        "Ubuntu", "Cantarell", "Fira Sans", "Droid Sans", "Helvetica Neue",
-        sans-serif;
+    font-family: var(--font-body);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-heading);
+    letter-spacing: -0.02em;
+}
+
+.tabular-nums, .tabular {
+    font-variant-numeric: tabular-nums;
 }
 
 code {
@@ -19,57 +32,63 @@ code {
 
 @layer base {
     :root {
-        --background: 0 0% 100%;
-        --foreground: 0 0% 3.9%;
+        --background: 210 20% 98%;
+        --foreground: 222 20% 10%;
         --card: 0 0% 100%;
-        --card-foreground: 0 0% 3.9%;
+        --card-foreground: 222 20% 10%;
         --popover: 0 0% 100%;
-        --popover-foreground: 0 0% 3.9%;
-        --primary: 0 0% 9%;
-        --primary-foreground: 0 0% 98%;
-        --secondary: 0 0% 96.1%;
-        --secondary-foreground: 0 0% 9%;
-        --muted: 0 0% 96.1%;
-        --muted-foreground: 0 0% 45.1%;
-        --accent: 0 0% 96.1%;
-        --accent-foreground: 0 0% 9%;
-        --destructive: 0 84.2% 60.2%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 89.8%;
-        --input: 0 0% 89.8%;
-        --ring: 0 0% 3.9%;
-        --chart-1: 12 76% 61%;
-        --chart-2: 173 58% 39%;
-        --chart-3: 197 37% 24%;
-        --chart-4: 43 74% 66%;
-        --chart-5: 27 87% 67%;
+        --popover-foreground: 222 20% 10%;
+        --primary: 221 83% 53%;
+        --primary-foreground: 0 0% 100%;
+        --secondary: 210 20% 94%;
+        --secondary-foreground: 222 20% 10%;
+        --muted: 210 20% 94%;
+        --muted-foreground: 220 10% 45%;
+        --accent: 210 20% 92%;
+        --accent-foreground: 222 20% 10%;
+        --destructive: 0 72% 51%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 220 15% 88%;
+        --input: 220 15% 88%;
+        --ring: 221 83% 53%;
+        --credit: 142 71% 35%;
+        --debit: 0 72% 45%;
+        --warning: 32 95% 40%;
+        --chart-1: 221 83% 53%;
+        --chart-2: 142 71% 35%;
+        --chart-3: 0 72% 45%;
+        --chart-4: 32 95% 40%;
+        --chart-5: 260 60% 55%;
         --radius: 0.5rem;
     }
     .dark {
-        --background: 0 0% 3.9%;
-        --foreground: 0 0% 98%;
-        --card: 0 0% 3.9%;
-        --card-foreground: 0 0% 98%;
-        --popover: 0 0% 3.9%;
-        --popover-foreground: 0 0% 98%;
-        --primary: 0 0% 98%;
-        --primary-foreground: 0 0% 9%;
-        --secondary: 0 0% 14.9%;
-        --secondary-foreground: 0 0% 98%;
-        --muted: 0 0% 14.9%;
-        --muted-foreground: 0 0% 63.9%;
-        --accent: 0 0% 14.9%;
-        --accent-foreground: 0 0% 98%;
-        --destructive: 0 62.8% 30.6%;
-        --destructive-foreground: 0 0% 98%;
-        --border: 0 0% 14.9%;
-        --input: 0 0% 14.9%;
-        --ring: 0 0% 83.1%;
-        --chart-1: 220 70% 50%;
-        --chart-2: 160 60% 45%;
-        --chart-3: 30 80% 55%;
-        --chart-4: 280 65% 60%;
-        --chart-5: 340 75% 55%;
+        --background: 240 6% 4%;
+        --foreground: 210 15% 92%;
+        --card: 240 5% 7%;
+        --card-foreground: 210 15% 92%;
+        --popover: 240 5% 7%;
+        --popover-foreground: 210 15% 92%;
+        --primary: 217 91% 60%;
+        --primary-foreground: 222 25% 8%;
+        --secondary: 240 5% 12%;
+        --secondary-foreground: 210 15% 92%;
+        --muted: 240 5% 12%;
+        --muted-foreground: 220 10% 60%;
+        --accent: 240 5% 14%;
+        --accent-foreground: 210 15% 92%;
+        --destructive: 0 62% 45%;
+        --destructive-foreground: 0 0% 100%;
+        --border: 240 5% 16%;
+        --input: 240 5% 16%;
+        --ring: 217 91% 60%;
+        --credit: 142 60% 45%;
+        --debit: 0 65% 58%;
+        --warning: 32 85% 55%;
+        --chart-1: 217 91% 60%;
+        --chart-2: 142 60% 45%;
+        --chart-3: 0 65% 58%;
+        --chart-4: 32 85% 55%;
+        --chart-5: 260 60% 65%;
     }
 }
 
@@ -81,6 +100,22 @@ code {
         @apply bg-background text-foreground;
     }
 }
+
+@layer utilities {
+    .text-credit { color: hsl(var(--credit)); }
+    .text-debit { color: hsl(var(--debit)); }
+    .text-warning { color: hsl(var(--warning)); }
+    .bg-credit-subtle { background-color: hsl(var(--credit) / 0.12); }
+    .bg-debit-subtle { background-color: hsl(var(--debit) / 0.12); }
+    .bg-warning-subtle { background-color: hsl(var(--warning) / 0.12); }
+    .font-heading { font-family: var(--font-heading); }
+    .font-body { font-family: var(--font-body); }
+}
+
+.prose-chat p { margin: 0 0 0.5em 0; }
+.prose-chat p:last-child { margin-bottom: 0; }
+.prose-chat ul, .prose-chat ol { margin: 0.25em 0 0.5em 1.25em; }
+.prose-chat strong { font-weight: 700; }
 
 @layer base {
     [data-debug-wrapper="true"] {
