@@ -1,11 +1,12 @@
 
 from fastapi import FastAPI, HTTPException, Depends, Header
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from pathlib import Path
 from datetime import datetime, timedelta, timezone
 import sqlite3, json, secrets, hashlib, hmac, base64, os, uuid, urllib.request, urllib.error
+from urllib.parse import urlencode
 
 ROOT = Path(__file__).resolve().parent.parent
 DB = Path(__file__).resolve().parent / "socio_digital.sqlite3"
@@ -72,6 +73,11 @@ def init_db():
     );
     CREATE TABLE IF NOT EXISTS whatsapp_log(
       id TEXT PRIMARY KEY, user_id TEXT, message TEXT, kind TEXT, created_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS integrations(
+      id TEXT PRIMARY KEY, user_id TEXT NOT NULL, provider TEXT NOT NULL,
+      access_token TEXT, refresh_token TEXT, expires_at TEXT, status TEXT NOT NULL,
+      connected_at TEXT, updated_at TEXT, UNIQUE(user_id, provider)
     );
     """)
     con.commit()
@@ -214,6 +220,85 @@ def company_context(user_row):
             for c in inactive[:10]
         ],
     }
+
+
+# ---- Conta Azul OAuth2 integration (adapted to this reconstructed SQLite/FastAPI app) ----
+CONTAAZUL_AUTH_BASE_URL = "https://auth.contaazul.com"
+CONTAAZUL_TOKEN_URL = f"{CONTAAZUL_AUTH_BASE_URL}/oauth2/token"
+CONTAAZUL_DEFAULT_SCOPES = "openid profile aws.cognito.signin.user.admin"
+
+def contaazul_config():
+    client_id = os.environ.get("CONTAAZUL_CLIENT_ID")
+    client_secret = os.environ.get("CONTAAZUL_CLIENT_SECRET")
+    redirect_uri = os.environ.get("CONTAAZUL_REDIRECT_URI")
+    return client_id, client_secret, redirect_uri
+
+def contaazul_is_configured():
+    return all(contaazul_config())
+
+def contaazul_basic_auth(client_id, client_secret):
+    raw = f"{client_id}:{client_secret}".encode("utf-8")
+    return "Basic " + base64.b64encode(raw).decode("ascii")
+
+def contaazul_authorize_url(state):
+    client_id, _secret, redirect_uri = contaazul_config()
+    if not contaazul_is_configured():
+        raise HTTPException(400, "Integração Conta Azul não configurada")
+    params = urlencode({
+        "response_type": "code",
+        "client_id": client_id,
+        "redirect_uri": redirect_uri,
+        "state": state,
+        "scope": CONTAAZUL_DEFAULT_SCOPES,
+    })
+    return f"{CONTAAZUL_AUTH_BASE_URL}/login?{params}"
+
+def contaazul_token_request(data):
+    client_id, client_secret, _redirect_uri = contaazul_config()
+    encoded = urlencode(data).encode("utf-8")
+    req = urllib.request.Request(
+        CONTAAZUL_TOKEN_URL,
+        data=encoded,
+        headers={
+            "Authorization": contaazul_basic_auth(client_id, client_secret),
+            "Content-Type": "application/x-www-form-urlencoded",
+            "Accept": "application/json",
+        },
+        method="POST",
+    )
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.loads(r.read().decode("utf-8"))
+
+def contaazul_exchange_code(code):
+    _client_id, _client_secret, redirect_uri = contaazul_config()
+    return contaazul_token_request({
+        "grant_type": "authorization_code",
+        "code": code,
+        "redirect_uri": redirect_uri,
+    })
+
+def _state_secret():
+    return (os.environ.get("OAUTH_STATE_SECRET") or os.environ.get("CONTAAZUL_CLIENT_SECRET") or "socio-digital-local-state").encode("utf-8")
+
+def make_oauth_state(user_id):
+    payload = json.dumps({"user_id": user_id, "nonce": secrets.token_hex(8), "ts": int(datetime.now(timezone.utc).timestamp())}, separators=(",", ":")).encode("utf-8")
+    encoded = base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+    sig = hmac.new(_state_secret(), encoded.encode("ascii"), hashlib.sha256).hexdigest()
+    return f"{encoded}.{sig}"
+
+def parse_oauth_state(state):
+    try:
+        encoded, sig = state.rsplit(".", 1)
+        expected = hmac.new(_state_secret(), encoded.encode("ascii"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            raise ValueError("assinatura")
+        raw = base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4))
+        data = json.loads(raw.decode("utf-8"))
+        if int(datetime.now(timezone.utc).timestamp()) - int(data.get("ts", 0)) > 900:
+            raise ValueError("expirado")
+        return data
+    except Exception:
+        raise HTTPException(400, "Parâmetro state inválido ou expirado")
 
 
 init_db()
@@ -431,6 +516,9 @@ def chat(x:ChatIn,u=Depends(auth_user)):
         prompt = f"""Você é o Sócio Digital, um copiloto executivo para pequenas empresas.
 Responda em português do Brasil, de forma objetiva, com leitura de negócio, prioridades,
 riscos e próximos passos. Não invente números. Use apenas o contexto fornecido.
+Formatação: nunca use títulos markdown (#, ##, ###), tabelas ou linhas divisórias (---).
+Prefira parágrafos curtos, negrito apenas para rótulos breves e listas simples de um nível.
+Quando fizer sentido, termine com **Ações sugeridas:** e de 1 a 3 ações concretas.
 
 CONTEXTO ATUAL DA EMPRESA:
 {json.dumps(ctx, ensure_ascii=False)}
@@ -453,35 +541,36 @@ PERGUNTA DO USUÁRIO:
     d = ctx["dashboard"]
     m=x.message.lower()
     if "lucro" in m:
-        resp=f"""## Lucro do Mês
+        resp=f"""**Lucro do mês**
 
-| Indicador | Valor |
-|---|---|
-| Receita Total | R$ {d['revenue_30']:,.2f} |
-| Lucro Bruto | R$ {d['profit_30']:,.2f} |
-| Despesas | R$ {d['expenses_30']:,.2f} |
-| **Lucro Líquido** | **R$ {d['net_profit_30']:,.2f}** |
+Receita total: R$ {d['revenue_30']:,.2f}
+Lucro bruto: R$ {d['profit_30']:,.2f}
+Despesas: R$ {d['expenses_30']:,.2f}
+**Lucro líquido:** R$ {d['net_profit_30']:,.2f}
 
-### Próximos passos
-1. Revisar despesas de maior impacto.
-2. Acompanhar margem líquida.
-3. Trabalhar ticket médio e recorrência."""
+**Ações sugeridas:**
+- Revisar despesas de maior impacto.
+- Acompanhar margem líquida.
+- Trabalhar ticket médio e recorrência."""
     elif "estoque" in m:
         low = ctx["low_stock"]
         if low:
             itens = "\n".join(f"- {p['name']}: {p['stock']} un. (mínimo {p['min_stock']})" for p in low)
-            resp = f"## Estoque — atenção\n\n{itens}\n\nPriorize reposição e prazo de fornecedor."
+            resp = f"**Estoque — atenção**\n\n{itens}\n\n**Ações sugeridas:**\n- Priorize reposição e prazo de fornecedor."
         else:
-            resp = "## Estoque\n\nNenhum item está no mínimo ou abaixo dele neste momento."
+            resp = "**Estoque**\n\nNenhum item está no mínimo ou abaixo dele neste momento."
     else:
-        resp=f"""## Onde focar agora
+        resp=f"""**Onde focar agora**
 
 - Receita 30d: R$ {d['revenue_30']:,.2f}
 - Lucro líquido: R$ {d['net_profit_30']:,.2f}
 - Clientes inativos: {d['inactive_customers_count']}
 - Estoque baixo: {d['low_stock_count']}
 
-Priorize margem, reativação de clientes e disponibilidade dos itens de maior giro."""
+**Ações sugeridas:**
+- Priorize margem.
+- Reative clientes inativos.
+- Garanta disponibilidade dos itens de maior giro."""
     resp=resp.replace(",", "X").replace(".", ",").replace("X",".")
     return {
         "response": resp,
@@ -489,11 +578,66 @@ Priorize margem, reativação de clientes e disponibilidade dos itens de maior g
         "mode": "local"
     }
 
+
+@app.get("/api/integrations/contaazul/status")
+def contaazul_status(u=Depends(auth_user)):
+    if not contaazul_is_configured():
+        return {"configured": False, "connected": False}
+    con = db()
+    row = con.execute("SELECT * FROM integrations WHERE user_id=? AND provider='contaazul'", (u["id"],)).fetchone()
+    con.close()
+    if not row or row["status"] != "connected":
+        return {"configured": True, "connected": False}
+    return {"configured": True, "connected": True, "connected_at": row["connected_at"], "updated_at": row["updated_at"]}
+
+@app.get("/api/integrations/contaazul/connect")
+def contaazul_connect(u=Depends(auth_user)):
+    if not contaazul_is_configured():
+        raise HTTPException(400, "Integração Conta Azul ainda não configurada (credenciais ausentes).")
+    state = make_oauth_state(u["id"])
+    return {"authorize_url": contaazul_authorize_url(state)}
+
+@app.get("/api/integrations/contaazul/callback")
+def contaazul_callback(code: str|None=None, state: str|None=None, error: str|None=None):
+    frontend_url = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    target = (frontend_url or "") + "/app/configuracoes"
+    if error or not code or not state:
+        return RedirectResponse(target + "?contaazul=error")
+    claims = parse_oauth_state(state)
+    try:
+        token_response = contaazul_exchange_code(code)
+        expires_in = int(token_response.get("expires_in", 3600))
+        expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
+        now = nowiso()
+        con = db()
+        existing = con.execute("SELECT id FROM integrations WHERE user_id=? AND provider='contaazul'", (claims["user_id"],)).fetchone()
+        if existing:
+            con.execute("""UPDATE integrations SET access_token=?,refresh_token=?,expires_at=?,status='connected',updated_at=? WHERE id=?""",
+                (token_response.get("access_token"), token_response.get("refresh_token"), expires_at, now, existing["id"]))
+        else:
+            con.execute("""INSERT INTO integrations(id,user_id,provider,access_token,refresh_token,expires_at,status,connected_at,updated_at)
+                         VALUES(?,?,?,?,?,?, 'connected',?,?)""",
+                (str(uuid.uuid4()), claims["user_id"], "contaazul", token_response.get("access_token"), token_response.get("refresh_token"), expires_at, now, now))
+        con.commit(); con.close()
+        return RedirectResponse(target + "?contaazul=connected")
+    except Exception:
+        return RedirectResponse(target + "?contaazul=error")
+
+@app.post("/api/integrations/contaazul/disconnect")
+def contaazul_disconnect(u=Depends(auth_user)):
+    con = db()
+    cur = con.execute("UPDATE integrations SET status='disconnected',access_token=NULL,refresh_token=NULL,updated_at=? WHERE user_id=? AND provider='contaazul'", (nowiso(), u["id"]))
+    con.commit(); con.close()
+    if cur.rowcount == 0:
+        raise HTTPException(404, "Nenhuma conexão com a Conta Azul encontrada")
+    return {"success": True}
+
 @app.get("/api/integrations/status")
 def integrations_status(u=Depends(auth_user)):
     return {
         "ai": {"configured": openai_enabled(), "provider": "openai" if openai_enabled() else "local"},
-        "whatsapp": {"configured": whatsapp_enabled(), "provider": "http/meta-compatible" if whatsapp_enabled() else "mocked"}
+        "whatsapp": {"configured": whatsapp_enabled(), "provider": "http/meta-compatible" if whatsapp_enabled() else "mocked"},
+        "contaazul": {"configured": contaazul_is_configured(), "provider": "contaazul"}
     }
 
 @app.get("/api/webhooks/whatsapp")
