@@ -1,11 +1,11 @@
 import os
 import json
 import logging
+import asyncio
 from fastapi import APIRouter, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
-
-from emergentintegrations.llm.chat import LlmChat, UserMessage, TextDelta, ToolCallStart, ToolCallReady, StreamDone
+import google.generativeai as genai
 
 from database import db
 from models import UserDoc, ChatMessageDoc
@@ -14,8 +14,6 @@ from chat_tools import TOOLS, dispatch_tool
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 logger = logging.getLogger(__name__)
-
-EMERGENT_LLM_KEY = os.environ["EMERGENT_LLM_KEY"]
 
 SYSTEM_MESSAGE = """Você é o Sócio Digital, um assistente executivo de IA que atua como co-administrador de uma pequena ou média empresa brasileira. Você conversa exclusivamente com o empresário ou a gestão da empresa (nunca com clientes finais).
 
@@ -36,6 +34,18 @@ class ChatRequest(BaseModel):
     message: str
 
 
+def _get_gemini_tools():
+    gemini_tools = []
+    for t in TOOLS:
+        fn = t.get("function", {})
+        gemini_tools.append({
+            "name": fn.get("name"),
+            "description": fn.get("description"),
+            "parameters": fn.get("parameters", {"type": "object", "properties": {}})
+        })
+    return gemini_tools
+
+
 @router.get("/history")
 async def get_history(current_user: UserDoc = Depends(get_current_user)):
     docs = await db.chat_messages.find({"company_id": current_user.company_id}).sort("created_at", 1).to_list(1000)
@@ -49,48 +59,88 @@ async def chat_stream(payload: ChatRequest, current_user: UserDoc = Depends(get_
 
     history_docs = await db.chat_messages.find({"company_id": company_id}).sort("created_at", -1).limit(HISTORY_LIMIT).to_list(HISTORY_LIMIT)
     history_docs.reverse()
-    initial_messages = [{"role": "system", "content": SYSTEM_MESSAGE}]
-    for m in history_docs:
-        initial_messages.append({"role": m["role"], "content": m["content"]})
 
     user_doc = ChatMessageDoc(company_id=company_id, user_id=current_user.id, role="user", content=user_text)
     await db.chat_messages.insert_one(user_doc.to_mongo())
 
     async def event_generator():
+        api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY", "")
+        if not api_key:
+            msg = "Chave da API do Gemini (GEMINI_API_KEY) não configurada no servidor. Configure a variável GEMINI_API_KEY no painel do Render para ativar o Chat com IA."
+            yield f"data: {json.dumps({'type': 'delta', 'content': msg})}\n\n"
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            assistant_doc = ChatMessageDoc(company_id=company_id, user_id=current_user.id, role="assistant", content=msg)
+            await db.chat_messages.insert_one(assistant_doc.to_mongo())
+            return
+
         full_response = ""
         try:
-            chat = (
-                LlmChat(api_key=EMERGENT_LLM_KEY, session_id=company_id, system_message=SYSTEM_MESSAGE, initial_messages=initial_messages)
-                .with_model("anthropic", "claude-sonnet-5")
-                .with_tools(TOOLS, tool_choice="auto")
+            genai.configure(api_key=api_key)
+            tools = _get_gemini_tools()
+            model = genai.GenerativeModel(
+                model_name="gemini-1.5-flash",
+                system_instruction=SYSTEM_MESSAGE,
+                tools=tools,
             )
-            user_msg = UserMessage(text=user_text)
-            while True:
-                pending = []
-                async for ev in chat.stream_message(user_msg):
-                    if isinstance(ev, TextDelta):
-                        full_response += ev.content
-                        yield f"data: {json.dumps({'type': 'delta', 'content': ev.content})}\n\n"
-                    elif isinstance(ev, ToolCallStart):
-                        yield f"data: {json.dumps({'type': 'tool_start', 'name': ev.name})}\n\n"
-                    elif isinstance(ev, ToolCallReady):
-                        pending.append(ev.tool_call)
-                    elif isinstance(ev, StreamDone):
-                        break
-                if not pending:
+
+            formatted_history = []
+            for m in history_docs:
+                role = "user" if m.get("role") == "user" else "model"
+                if m.get("content"):
+                    formatted_history.append({"role": role, "parts": [m["content"]]})
+
+            chat = model.start_chat(history=formatted_history)
+            response = chat.send_message(user_text)
+
+            # Loop para processar tool calls (até 5 passos)
+            for _ in range(5):
+                has_tool_call = False
+                if response.candidates and response.candidates[0].content.parts:
+                    for part in response.candidates[0].content.parts:
+                        if fn_call := getattr(part, "function_call", None):
+                            has_tool_call = True
+                            fn_name = fn_call.name
+                            fn_args = dict(fn_call.args) if fn_call.args else {}
+                            yield f"data: {json.dumps({'type': 'tool_start', 'name': fn_name})}\n\n"
+                            tool_result = await dispatch_tool(fn_name, fn_args, company_id)
+                            
+                            response = chat.send_message({
+                                "role": "function",
+                                "parts": [{
+                                    "function_response": {
+                                        "name": fn_name,
+                                        "response": {"result": tool_result}
+                                    }
+                                }]
+                            })
+                            break
+                if not has_tool_call:
                     break
-                for tc in pending:
-                    result = await dispatch_tool(tc.name, tc.arguments, company_id)
-                    chat.add_tool_result(tc.id, json.dumps(result))
-                user_msg = None
+
+                # Extrai o texto final da resposta
+            text = ""
+            if response.candidates and response.candidates[0].content.parts:
+                for part in response.candidates[0].content.parts:
+                    if getattr(part, "text", None):
+                        text += part.text
+
+            if text:
+                full_response = text
+                words = text.split(" ")
+                for i, w in enumerate(words):
+                    content = w + (" " if i < len(words) - 1 else "")
+                    yield f"data: {json.dumps({'type': 'delta', 'content': content})}\n\n"
+                    await asyncio.sleep(0.01)
 
             if full_response:
                 assistant_doc = ChatMessageDoc(company_id=company_id, user_id=current_user.id, role="assistant", content=full_response)
                 await db.chat_messages.insert_one(assistant_doc.to_mongo())
+
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
+
         except Exception as e:
-            logger.error(f"Chat stream error: {e}")
-            yield f"data: {json.dumps({'type': 'error', 'message': 'Desculpe, ocorreu um erro ao processar sua pergunta. Tente novamente.'})}\n\n"
+            logger.error(f"Chat stream error (Gemini): {e}", exc_info=True)
+            yield f"data: {json.dumps({'type': 'error', 'message': f'Desculpe, ocorreu um erro ao processar sua pergunta. Detalhes: {str(e)}'})}\n\n"
 
     return StreamingResponse(
         event_generator(),
