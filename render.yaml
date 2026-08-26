@@ -21,11 +21,10 @@ services:
       - key: EMERGENT_LLM_KEY
         sync: false
 
-  # 2. Frontend Web App (React)
+  # 2. Frontend Web App (React Static Site)
   - type: web
     name: socio-digital-web
     runtime: static
-    plan: free
     rootDir: frontend
     buildCommand: yarn && yarn build
     staticPublishPath: build
