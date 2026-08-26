@@ -1,0 +1,123 @@
+{
+  "theme": "hybrid",
+  "theme_instructions": "Implement a robust light and dark mode toggle. The application must support both, as requested by the user, defaulting to light mode. Do not use pure #000000 or #FFFFFF for backgrounds. Use tinted grays (e.g., #09090B for dark mode).",
+  "typography": {
+    "strategy": "The 'Old Money Tech' mixed with 'Swiss Brutalism'. Authoritative, highly legible, precise.",
+    "heading_font": "Manrope",
+    "body_font": "IBM Plex Sans",
+    "financial_data_font": "IBM Plex Sans",
+    "rules": [
+      "No generic Inter for headings.",
+      "CRITICAL FOR FINANCE: All numbers, currency, and financial data MUST use 'tabular-nums' (font-variant-numeric: tabular-nums) to ensure digits align perfectly in columns.",
+      "Headings (H1/H2) must have tight tracking (tracking-tight) to feel premium.",
+      "Overlines and table headers must be uppercase, text-xs, font-semibold, and widely spaced (tracking-widest)."
+    ]
+  },
+  "colors": {
+    "archetype": "The Performance Pro meets Swiss High-Contrast",
+    "background_light": "#F8F9FA",
+    "surface_light": "#FFFFFF",
+    "background_dark": "#0A0A0B",
+    "surface_dark": "#121214",
+    "primary": "#2563EB",
+    "semantic": {
+      "credit_green": "light: #16A34A, dark: #22C55E",
+      "debit_red": "light: #DC2626, dark: #EF4444",
+      "warning_amber": "light: #D97706, dark: #F59E0B"
+    },
+    "forbidden_colors": ["#1B93A4", "generic cyan gradients"],
+    "rules": [
+      "Use semantic colors for financial data (Green for positive/credit, Red for negative/debit).",
+      "In Dark Mode, desaturate semantic colors slightly so they do not bleed or vibrate against dark backgrounds.",
+      "Never use full-screen gradients. Keep the UI flat, crisp, and objective."
+    ]
+  },
+  "spacing_and_layout": {
+    "strategy": "MODE B: High Density Grid (For Dashboards / Analytics).",
+    "grid_system": "grid-cols-1 md:grid-cols-3 lg:grid-cols-4 or lg:grid-cols-12 for fine-grained control.",
+    "rules": [
+      "Gap Strategy: Tight (gap-4 or gap-6). Every pixel matters in a financial cockpit.",
+      "Widget Ratios: Summary cards (col-span-1 or col-span-3 in a 12-col grid), Primary charts (col-span-2 row-span-2 or col-span-8), Feed/Alerts (col-span-1 row-span-2 or col-span-4).",
+      "No rounded corners larger than 8px (rounded-md or rounded-lg max). Sharp edges imply precision.",
+      "Padding: Cards must have p-6 internal padding. Avoid cramped text near borders."
+    ]
+  },
+  "surfaces": {
+    "style": "Grid Borders (The 'Technical' Look) & Flat Solid surfaces.",
+    "rules": [
+      "Card Default: Flat background, 1px subtle border (border-border), NO soft muddy shadows. Use sharp 1px strokes or very crisp shadows (shadow-sm).",
+      "Card Hover: Slight lift (-translate-y-[1px]) and border color darkens/lightens slightly.",
+      "Headers: Use Solid Background with a hard bottom border (border-b). DO NOT use glassmorphism or transparent backgrounds for the main layout, as this is a data-heavy tool and requires maximum clarity.",
+      "Radar Alerts: Use subtle tinted backgrounds based on priority (bg-red-50/dark:bg-red-950/20 for critical, etc.) with a solid left border to indicate severity."
+    ]
+  },
+  "components": {
+    "sidebar": "Clean vertical navigation. Top: Brand Logo. Links: Chat, Dashboard, Radar (Alerts), Clientes, Estoque, Financeiro, Configurações. Bottom: User Profile. Use Phosphor Icons.",
+    "chat_widget": "Floating action button in bottom right leading to a slide-over panel OR a dedicated route. UI must distinguish between AI (system) and User messages clearly. Use subtle gray for AI bubbles and primary color for User bubbles.",
+    "radar_inteligente": "A dedicated section or sidebar feed. Cards must explicitly show priority (Red/Yellow/Green) and contain actionable 'Next Step' buttons (e.g., 'Renegotiate', 'Approve').",
+    "financial_charts": "Use Recharts. Line charts for cash flow (zero-baseline). Bar charts for AP/AR. Grayscale grid lines. Apply semantic color only to the data lines to reduce visual noise.",
+    "data_tables": "Use Shadcn Table. Zebra striping or subtle border-b for rows. Right-align all numerical financial columns. Left-align text/names."
+  },
+  "motion": {
+    "rules": [
+      "Minimalist and snappy.",
+      "Hover states on all buttons and table rows (bg-muted/50).",
+      "Do NOT use 'transition-all'. Target specific properties (transition-colors, transition-transform).",
+      "Chart loading must use skeleton loaders (Shadcn Skeleton) instead of spinning wheels to prevent layout shift."
+    ]
+  },
+  "accessibility_and_testing": {
+    "rules": [
+      "Ensure APCA/WCAG AA contrast for all text, especially semantic red/green over their respective backgrounds.",
+      "CRITICAL: All interactive and key informational elements MUST include a 'data-testid' attribute (e.g., data-testid='chat-toggle-btn', data-testid='radar-alert-card', data-testid='financial-kpi-value')."
+    ]
+  },
+  "icons_and_assets": {
+    "library": "@phosphor-icons/react",
+    "installation": "yarn add @phosphor-icons/react",
+    "style": "Duotone or Regular weight. Consistent sizing (20px or 24px)."
+  },
+  "image_urls": [
+    {
+      "url": "https://images.unsplash.com/photo-1560250097-0b93528c311a?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjh8MHwxfHNlYXJjaHwxfHxidXNpbmVzcyUyMHBvcnRyYWl0JTIwaGVhZHNob3R8ZW58MHx8fHwxNzg1OTY2NzM2fDA&ixlib=rb-4.1.0&q=85",
+      "category": "team_avatar_ceo",
+      "description": "Professional male headshot for Team Panel / Dashboard Profile"
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1573497019940-1c28c88b4f3e?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMjh8MHwxfHNlYXJjaHwyfHxidXNpbmVzcyUyMHBvcnRyYWl0JTIwaGVhZHNob3R8ZW58MHx8fHwxNzg1OTY2NzM2fDA&ixlib=rb-4.1.0&q=85",
+      "category": "team_avatar_manager",
+      "description": "Professional female headshot for Team Panel"
+    },
+    {
+      "url": "https://images.unsplash.com/photo-1632249309348-3b528c450fcd?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA0MTJ8MHwxfHNlYXJjaHwxfHxhYnN0cmFjdCUyMG1pbmltYWwlMjB0ZWNoJTIwbG9nbyUyMHdoaXRlJTIwYmFja2dyb3VuZHxlbnwwfHx8fDE3ODU5NjY3MzV8MA&ixlib=rb-4.1.0&q=85",
+      "category": "brand_logo_placeholder",
+      "description": "Minimal tech logo abstract background for authentication or sidebar header if text logo is not sufficient"
+    }
+  ],
+  "instructions_to_main_agent": [
+    "You are building an Executive Cockpit (Sócio Digital) for Brazilian SMEs. The interface must inspire trust, precision, and authority.",
+    "Do not use generic 'AI slop' aesthetics like random gradients, floating transparent unreadable UI, or overuse of emoji icons.",
+    "Use raw HTML/Tailwind for structural layouts to ensure precision, but use customized Shadcn/UI for logic-heavy components (Dialogs, Tables, Dropdowns).",
+    "For Recharts, strip away default stylings. Use Tailwind semantic colors in the chart configurations. Grayscale the grid lines.",
+    "The 'Radar' must feel like an operational inbox. Don't just show data; present actionable cards.",
+    "Always apply 'tabular-nums' to financial metrics. Align financial values to the right in tables.",
+    "Do NOT apply global text-align: center to the App.",
+    "Implement data-testid attributes extensively.",
+    "Language is explicitly Portuguese (pt-BR)."
+  ],
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "Avoid generic, 'on distribution' outputs. Make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy (use crisp borders rather than soft shadows).",
+    "You MUST NOT apply universal transition (e.g., transition: all). Add transitions for specific interactive elements (e.g., transition-colors).",
+    "You MUST NOT center align the app container. Do not add '.App { text-align: center; }'.",
+    "Always use modern button styles like pill-shaped, or sharp button with interaction animations & color relevant to the app style.",
+    "NEVER use AI assistant Emoji characters like 🤖🧠💭💡🔮🎯 for icons. Use Phosphor Icons.",
+    "Every interaction needs micro-animations - hover states, transitions. Static = dead.",
+    "Use 2-3x more spacing than feels comfortable. Cramped designs look cheap.",
+    "Main agent relies on image_urls provided. NEVER use placeholder text for images or avatars.",
+    "Prioritize using pre-existing components from src/components/ui. Create new matching components when needed.",
+    "Use sonner for toasts, located in /app/src/components/ui/sonner.tsx"
+  ]
+}
