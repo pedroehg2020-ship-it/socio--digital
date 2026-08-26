@@ -64,9 +64,26 @@ logger = logging.getLogger(__name__)
 
 @app.on_event("startup")
 async def startup_event():
-    start_scheduler()
+    try:
+        from database import db
+        from seed_demo import seed
+        user = await db.users.find_one({"email": "demo@sociodigital.com"})
+        if not user:
+            logger.info("Inicializando dados de demonstração (seed)...")
+            await seed()
+    except Exception as e:
+        logger.warning(f"Aviso na inicialização dos dados de demonstração: {e}")
+
+    try:
+        start_scheduler()
+    except Exception as e:
+        logger.warning(f"Aviso ao iniciar scheduler: {e}")
 
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
-    client.close()
+    try:
+        client.close()
+    except Exception:
+        pass
+

@@ -11,7 +11,7 @@ services:
       - key: PYTHON_VERSION
         value: 3.11.9
       - key: MONGO_URL
-        sync: false
+        value: ""
       - key: DB_NAME
         value: socio_digital
       - key: JWT_SECRET
@@ -19,7 +19,7 @@ services:
       - key: CORS_ORIGINS
         value: "*"
       - key: GEMINI_API_KEY
-        sync: false
+        value: ""
 
   # 2. Frontend Web App (React Static Site)
   - type: web
