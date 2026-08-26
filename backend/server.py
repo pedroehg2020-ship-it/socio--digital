@@ -21,6 +21,7 @@ from routes import (
     customer_routes,
     inventory_routes,
     command_routes,
+    memory_routes,
 )
 from scheduler import start_scheduler
 
@@ -43,6 +44,7 @@ api_router.include_router(radar_routes.router)
 api_router.include_router(customer_routes.router)
 api_router.include_router(inventory_routes.router)
 api_router.include_router(command_routes.router)
+api_router.include_router(memory_routes.router)
 
 app.include_router(api_router)
 

@@ -1,0 +1,46 @@
+{
+  "summary": "Fase 2 testing (Memória do Negócio + Detecção de Anomalias). New pytest suites created: tests/test_memory_anomalies.py (10 tests, all PASS) and tests/test_chat_memory.py (2 tests, PASSED when first run, later blocked by LLM budget). Regression: existing 41 tests (test_command_center.py, test_command_center_extra.py, test_socio_digital.py) all PASS. Frontend Playwright: login demo, /configuracoes Memória do Negócio (goals save+persist after reload, toast, add/remove fact with 'manual' badge, 7 seasonality bars), /dashboard anomaly cards with severity+evidence, 'Investigar anomalia' -> /chat firing exactly 1 /api/chat/stream request (iteration-2 fix confirmed), /radar 2 'Anomalia:' alerts with 'Investigar no chat', /dados KPIs OK, zero console errors. Demo memory restored to revenue_goal_monthly=60000, margin=25, original seasonality_notes and 1 seed fact.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "/api/chat/stream", "issue": "LLM budget exhausted on EMERGENT_LLM_KEY: backend log 'litellm.BadRequestError: OpenAIException - Budget has been exceeded! Current cost: 1.0106, Max budget: 1.0'. Chat now returns SSE {type:'error'} immediately (~1s) for every message. Not an app-code bug — key needs budget top-up before any further chat/AI testing.", "priority": "CRITICAL"}
+    ],
+    "minor": [
+      {"endpoint": "/api/chat/stream", "issue": "Nondeterministic memory grounding: in one run the assistant answered 'sua meta está anotada como R$ 75.000 (já estava registrada desde nossa conversa anterior)' while DB had 60000 — it reused stale chat history instead of calling get_business_memory. Consider instructing the model to always re-read get_business_memory before quoting goals (or trim/annotate history)."},
+      {"endpoint": "/api/chat/stream", "issue": "save_business_memory can be re-triggered from stale history: after a test set the goal to 75000 and it was reverted via PUT, a later unrelated chat run re-wrote 75000, causing memory drift."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Central de Comando (/dashboard)", "issues": ["Health score shows 80/100 'Saudável' while two CRÍTICO anomalies (revenue -33%, Marketing +112%) are listed — the score does not incorporate anomaly severity, which reads inconsistent.", "Coexisting insights can confuse: 'Faturamento de julho -33%' (anomaly) next to 'As vendas cresceram 26.9%' (month-over-month, partial August) — consider clarifying the period of each card."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_memory_anomalies.py",
+    "/app/backend/tests/test_chat_memory.py",
+    "/app/test_reports/pytest/pytest_results.xml",
+    "/app/test_reports/pytest/memory_anomalies.xml"
+  ],
+  "action_items": [
+    "Top up / raise budget on EMERGENT_LLM_KEY — chat is fully non-functional right now (budget exceeded).",
+    "Optional: force get_business_memory before quoting goals in chat answers to avoid stale-history numbers.",
+    "Optional: factor anomaly severity into the health score so 'Saudável 80' doesn't coexist with two critical anomalies."
+  ],
+  "critical_code_review_comments": [
+    "PUT /api/memory uses exclude_unset so partial updates are safe — verified. But since both UI and the LLM tool write the same doc, a chat tool call can silently overwrite goals the user just set; consider recording source/timestamp per field.",
+    "detect_anomalies() is recomputed on every /command-center/overview and radar recompute over up to 10k transactions in-process; fine at demo scale, but cache or precompute if transaction volume grows.",
+    "radar_engine inserts a new 'anomalia' alert on every recompute without dedupe by anomaly key — repeated recomputes can duplicate anomaly alerts (verify dedupe logic if 'Atualizar radar' is pressed repeatedly)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_memory_anomalies.py",
+    "/app/backend/tests/test_chat_memory.py"
+  ],
+  "success_rate": {"backend": "96% (51/53; 2 chat tests blocked by LLM budget, both passed earlier in isolation)", "frontend": "100%"},
+  "seed_data_creation": "No new seed. Temporary TEST_ fact and temporary goal/notes changes were created and reverted; demo memory left at revenue_goal_monthly=60000, margin_goal_pct=25, seasonality_notes='Inverno (maio a agosto) é a alta temporada de café.', facts=[seed-fact-1].",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "demo@sociodigital.com / Demo@123 (from /app/memory/test_credentials.md)",
+  "context_for_next_testing_agent": "Run tests/test_memory_anomalies.py with `-n 0` — its classes mutate the single demo business_memory doc, so the pytest.ini default (-n 2 loadscope) causes cross-worker races (false failures on revenue_goal_monthly). tests/test_chat_memory.py must also run serially (LLM concurrency + cost). /api alerts endpoint is /api/radar/alerts (not /api/alerts). Verified functional: GET/PUT /api/memory, POST/DELETE /api/memory/facts (404 on unknown id, 422 on blank text), overview insights include anomaly-receita-fora-padrao (critical), anomaly-despesa-marketing (critical, +112%), goal-progress, max 6 insights; radar has exactly 2 'anomalia' alerts. Chat learning test (75 mil -> save_business_memory -> GET /api/memory == 75000) PASSED before the LLM budget ran out; re-verify after budget top-up.",
+  "rca_of_the_issue": "Chat failures are environmental, not code: the Emergent LLM key hit its max budget (1.0), so LlmChat raises BadRequestError at stream start and chat_routes emits a generic error event. All memory/anomaly business logic verified working end-to-end."
+}

@@ -103,7 +103,7 @@ class TestCommandOverview:
         d = demo_client.get(f"{API}/command-center/overview", timeout=60).json()
         insights = d["insights"]
         assert len(insights) >= 1
-        assert len(insights) <= 5
+        assert len(insights) <= 6
         ids = [i["id"] for i in insights]
         assert len(ids) == len(set(ids)), "duplicate insight ids"
         for i in insights:

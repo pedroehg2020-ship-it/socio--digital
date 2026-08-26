@@ -34,7 +34,7 @@ async def seed():
     existing = await db.users.find_one({"email": DEMO_EMAIL})
     if existing:
         company_id = existing["company_id"]
-        for coll in ("transactions", "customers", "products", "alerts", "chat_messages"):
+        for coll in ("transactions", "customers", "products", "alerts", "chat_messages", "business_memory"):
             await db[coll].delete_many({"company_id": company_id})
         await db.users.delete_many({"company_id": company_id})
         await db.companies.delete_one({"_id": __import__("bson").ObjectId(company_id)})
@@ -52,7 +52,7 @@ async def seed():
     for month_offset in range(6, -1, -1):
         month_start = (today.replace(day=1) - timedelta(days=month_offset * 30)).replace(day=1)
         growth = 1.0 + (6 - month_offset) * 0.045
-        dip = 0.82 if month_offset == 1 else 1.0
+        dip = 0.62 if month_offset == 1 else 1.0
         for name, weight in CUSTOMERS:
             n_sales = max(1, int(random.gauss(3.2, 1.0)))
             if month_offset >= 2 and name == "Doceria Flor de Lis":
@@ -76,6 +76,8 @@ async def seed():
             if date > today:
                 continue
             cost_pressure = 1.12 if month_offset <= 1 and cat == "Fornecedores" else 1.0
+            if month_offset == 1 and cat == "Marketing":
+                cost_pressure = 2.4
             is_pending = month_offset == 0 and idx < 4
             due = (today + timedelta(days=2 + idx * 2)).isoformat() if is_pending else None
             txs.append(TransactionDoc(
@@ -90,6 +92,17 @@ async def seed():
         ProductDoc(company_id=company_id, name=n, stock_qty=q, min_stock=m, avg_monthly_sales=s).to_mongo()
         for n, q, m, s in PRODUCTS
     ])
+    await db.business_memory.update_one(
+        {"company_id": company_id},
+        {"$set": {
+            "revenue_goal_monthly": 60000.0,
+            "margin_goal_pct": 25.0,
+            "seasonality_notes": "Inverno (maio a agosto) é a alta temporada de café.",
+            "facts": [{"id": "seed-fact-1", "text": "O fornecedor principal de grãos é a Fazenda Santa Clara, com prazo de entrega de 5 dias.", "source": "manual", "created_at": datetime.now(timezone.utc).isoformat()}],
+            "updated_at": datetime.now(timezone.utc).isoformat(),
+        }},
+        upsert=True,
+    )
     alerts = await run_full_radar(company_id)
     print(f"Seed ok: company={company_id} txs={len(txs)} products={len(PRODUCTS)} alerts={alerts}")
     print(f"Login: {DEMO_EMAIL} / {DEMO_PASSWORD}")

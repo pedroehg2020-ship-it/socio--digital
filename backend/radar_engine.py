@@ -3,9 +3,10 @@ from collections import defaultdict
 
 from database import db
 from models import CustomerDoc, AlertDoc
+from anomaly_engine import detect_anomalies
 
 INACTIVE_DAYS_THRESHOLD = 45
-AUTO_ALERT_TYPES = ["queda_vendas", "conta_vencer", "ruptura_estoque", "estoque_parado", "cliente_inativo"]
+AUTO_ALERT_TYPES = ["queda_vendas", "conta_vencer", "ruptura_estoque", "estoque_parado", "cliente_inativo", "anomalia"]
 
 
 async def recompute_customers(company_id: str):
@@ -147,6 +148,17 @@ async def recompute_alerts(company_id: str) -> int:
                 description=f"'{c['name']}' não compra desde {c['last_purchase_date']} (total histórico: R$ {c['total_spent']:,.2f}). Risco de churn.",
                 action_label="Ver Clientes", action_route="/clientes",
             ))
+
+    for anomaly in detect_anomalies(txs, products):
+        if anomaly["severity"] == "positive":
+            continue
+        new_alerts.append(AlertDoc(
+            company_id=company_id, type="anomalia",
+            priority="red" if anomaly["severity"] == "critical" else "yellow",
+            title=f"Anomalia: {anomaly['title']}",
+            description=anomaly["summary"],
+            action_label="Investigar no chat", action_route="/investigar",
+        ))
 
     if new_alerts:
         await db.alerts.insert_many([a.to_mongo() for a in new_alerts])

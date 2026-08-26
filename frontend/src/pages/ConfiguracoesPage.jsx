@@ -10,6 +10,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/components/ui/sonner";
 import { UserPlus, Trash } from "@phosphor-icons/react";
+import { BusinessMemorySection } from "@/components/settings/BusinessMemorySection";
 
 const ROLE_LABEL = { owner: "Proprietário", manager: "Gestor", member: "Colaborador" };
 
@@ -59,6 +60,7 @@ export default function ConfiguracoesPage() {
 
   return (
     <div className="space-y-6 max-w-2xl" data-testid="configuracoes-page">
+      <BusinessMemorySection />
       <Card>
         <CardHeader>
           <CardTitle className="text-base">Empresa</CardTitle>

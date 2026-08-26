@@ -1,3 +1,4 @@
+import calendar
 from collections import defaultdict
 from datetime import datetime, timezone, timedelta
 
@@ -6,6 +7,7 @@ from fastapi import APIRouter, Depends
 from auth import get_current_user
 from database import db
 from models import UserDoc
+from anomaly_engine import detect_anomalies
 
 router = APIRouter(prefix="/command-center", tags=["command-center"])
 
@@ -55,6 +57,51 @@ def _health_score(txs, products, customers):
     score = round(sum(item["score"] for item in components) / len(components))
     status = "Saudável" if score >= 75 else "Merece atenção" if score >= 55 else "Em risco"
     return {"score": score, "status": status, "components": components}
+
+
+def _anomaly_insights(txs, products):
+    insights = []
+    for a in detect_anomalies(txs, products)[:3]:
+        insights.append({
+            "id": f"anomaly-{a['key']}",
+            "severity": a["severity"],
+            "title": a["title"],
+            "summary": a["summary"],
+            "evidence": a["evidence"],
+            "action": "Investigar anomalia",
+            "prompt": f"Detectei esta anomalia: {a['title']}. Investigue as causas e me diga o que fazer.",
+            "confidence": "Alta",
+        })
+    return insights
+
+
+def _goal_insight(txs, memory):
+    goal = (memory or {}).get("revenue_goal_monthly")
+    if not goal:
+        return None
+    now = datetime.now(timezone.utc)
+    cur = now.strftime("%Y-%m")
+    revenue = sum(t["amount"] for t in txs if t["type"] == "receita" and t["date"][:7] == cur)
+    days_in_month = calendar.monthrange(now.year, now.month)[1]
+    expected = goal * now.day / days_in_month
+    pace = (revenue / expected * 100) if expected else 0
+    pct_goal = revenue / goal * 100
+    if pace >= 100:
+        severity, headline = "positive", f"Você está {pace - 100:.0f}% à frente da meta do mês"
+    elif pace >= 85:
+        severity, headline = "informative", "Meta do mês em ritmo próximo do esperado"
+    else:
+        severity, headline = "important", f"Meta do mês em risco: ritmo {100 - pace:.0f}% abaixo do esperado"
+    return {
+        "id": "goal-progress",
+        "severity": severity,
+        "title": headline,
+        "summary": f"Faturamento até agora: R$ {revenue:,.2f} ({pct_goal:.0f}% da meta de R$ {goal:,.2f}). No dia {now.day} de {days_in_month}, o esperado seria R$ {expected:,.2f}.",
+        "evidence": [f"Meta mensal: R$ {goal:,.2f}", f"Realizado: R$ {revenue:,.2f}", f"Ritmo: {pace:.0f}% do esperado", "Fonte: sua meta na Memória do Negócio"],
+        "action": "Planejar o restante do mês",
+        "prompt": "Como está meu progresso em relação à meta do mês e o que fazer para alcançá-la?",
+        "confidence": "Alta",
+    }
 
 
 def _build_insights(txs, products, customers):
@@ -113,7 +160,12 @@ async def command_overview(current_user: UserDoc = Depends(get_current_user)):
     txs = await db.transactions.find({"company_id": company_id}, {"_id": 0}).to_list(10000)
     products = await db.products.find({"company_id": company_id}, {"_id": 0}).to_list(1000)
     customers = await db.customers.find({"company_id": company_id}, {"_id": 0}).to_list(1000)
-    insights = _build_insights(txs, products, customers)
+    memory = await db.business_memory.find_one({"company_id": company_id})
+    insights = _anomaly_insights(txs, products)
+    goal = _goal_insight(txs, memory)
+    if goal:
+        insights.append(goal)
+    insights = (insights + _build_insights(txs, products, customers))[:6]
     health = _health_score(txs, products, customers)
     name = current_user.name.split()[0] if current_user.name else "gestor"
     if not txs and not products and not customers:

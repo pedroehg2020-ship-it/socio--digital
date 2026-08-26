@@ -63,6 +63,31 @@ TOOLS = [
             },
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "get_business_memory",
+            "description": "Retorna a memória do negócio: metas (faturamento mensal e margem), fatos aprendidos sobre a empresa e o padrão de sazonalidade calculado a partir das vendas. Use para personalizar conselhos.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "save_business_memory",
+            "description": "Salva informações na memória do negócio quando o empresário mencionar metas, sazonalidade ou fatos importantes (ex: 'minha meta é faturar 80 mil', 'dezembro é meu mês mais forte', 'meu fornecedor principal é X'). Informe apenas os campos relevantes.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "fact": {"type": "string", "description": "Fato importante sobre o negócio para lembrar em conversas futuras"},
+                    "revenue_goal_monthly": {"type": "number", "description": "Meta de faturamento mensal em reais"},
+                    "margin_goal_pct": {"type": "number", "description": "Meta de margem de lucro em porcentagem"},
+                    "seasonality_note": {"type": "string", "description": "Observação sobre sazonalidade do negócio"},
+                },
+                "required": [],
+            },
+        },
+    },
 ]
 
 
@@ -78,7 +103,48 @@ async def dispatch_tool(name: str, arguments: dict, company_id: str) -> dict:
         return await _get_inventory(company_id, arguments)
     if name == "get_alerts":
         return await _get_alerts(company_id, arguments)
+    if name == "get_business_memory":
+        return await _get_business_memory(company_id)
+    if name == "save_business_memory":
+        return await _save_business_memory(company_id, arguments)
     return {"error": f"Ferramenta desconhecida: {name}"}
+
+
+async def _get_business_memory(company_id):
+    from anomaly_engine import compute_seasonality
+    doc = await db.business_memory.find_one({"company_id": company_id})
+    txs = await db.transactions.find({"company_id": company_id}, {"_id": 0, "type": 1, "date": 1, "amount": 1}).to_list(10000)
+    seasonality = compute_seasonality(txs)
+    return {
+        "revenue_goal_monthly": (doc or {}).get("revenue_goal_monthly"),
+        "margin_goal_pct": (doc or {}).get("margin_goal_pct"),
+        "seasonality_notes": (doc or {}).get("seasonality_notes"),
+        "facts": [f["text"] for f in (doc or {}).get("facts", [])],
+        "seasonality_calculated": seasonality,
+    }
+
+
+async def _save_business_memory(company_id, args):
+    from routes.memory_routes import upsert_memory, append_fact
+    saved = []
+    fields = {}
+    if args.get("revenue_goal_monthly") is not None:
+        fields["revenue_goal_monthly"] = float(args["revenue_goal_monthly"])
+        saved.append(f"meta de faturamento mensal: R$ {fields['revenue_goal_monthly']:,.2f}")
+    if args.get("margin_goal_pct") is not None:
+        fields["margin_goal_pct"] = float(args["margin_goal_pct"])
+        saved.append(f"meta de margem: {fields['margin_goal_pct']}%")
+    if args.get("seasonality_note"):
+        fields["seasonality_notes"] = args["seasonality_note"]
+        saved.append("observação de sazonalidade")
+    if fields:
+        await upsert_memory(company_id, fields)
+    if args.get("fact"):
+        await append_fact(company_id, args["fact"], "chat")
+        saved.append("fato sobre o negócio")
+    if not saved:
+        return {"message": "Nada para salvar: informe fact, revenue_goal_monthly, margin_goal_pct ou seasonality_note."}
+    return {"saved": saved, "message": "Memória do negócio atualizada com sucesso."}
 
 
 async def _get_financial_summary(company_id):
