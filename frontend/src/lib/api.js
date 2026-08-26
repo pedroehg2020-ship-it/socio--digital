@@ -1,7 +1,16 @@
 import axios from "axios";
 
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
-export const API = `${BACKEND_URL}/api`;
+export function resolveApiUrl() {
+  let backendUrl = process.env.REACT_APP_BACKEND_URL || "";
+  backendUrl = backendUrl.trim();
+  if (backendUrl && !backendUrl.startsWith("http://") && !backendUrl.startsWith("https://")) {
+    backendUrl = `https://${backendUrl}`;
+  }
+  backendUrl = backendUrl.replace(/\/+$/, "");
+  return backendUrl ? `${backendUrl}/api` : "/api";
+}
+
+export const API = resolveApiUrl();
 
 export const api = axios.create({ baseURL: API });
 
@@ -16,7 +25,14 @@ api.interceptors.response.use(
   (err) => {
     if (err.response?.status === 401) {
       localStorage.removeItem("sd_token");
-      if (window.location.pathname !== "/login") window.location.href = "/login";
+      if (
+        typeof window !== "undefined" &&
+        window.location.pathname !== "/login" &&
+        window.location.pathname !== "/" &&
+        window.location.pathname !== "/register"
+      ) {
+        window.location.href = "/login";
+      }
     }
     return Promise.reject(err);
   }

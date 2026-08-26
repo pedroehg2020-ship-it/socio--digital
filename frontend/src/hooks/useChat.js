@@ -1,6 +1,5 @@
 import { useState, useCallback, useRef } from "react";
-
-const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+import { API } from "@/lib/api";
 
 export function useChat() {
   const [messages, setMessages] = useState([]);
@@ -13,7 +12,7 @@ export function useChat() {
       historyPromiseRef.current = (async () => {
         try {
           const token = localStorage.getItem("sd_token");
-          const res = await fetch(`${BACKEND_URL}/api/chat/history`, { headers: { Authorization: `Bearer ${token}` } });
+          const res = await fetch(`${API}/chat/history`, { headers: { Authorization: `Bearer ${token}` } });
           const data = await res.json();
           if (Array.isArray(data)) setMessages((prev) => (prev.length ? prev : data));
         } catch {
@@ -34,7 +33,7 @@ export function useChat() {
       setMessages((prev) => [...prev, { role: "user", content: text }, { role: "assistant", content: "", _cid: msgId }]);
       const patch = (updater) => setMessages((prev) => prev.map((m) => (m._cid === msgId ? updater(m) : m)));
       const token = localStorage.getItem("sd_token");
-      const res = await fetch(`${BACKEND_URL}/api/chat/stream`, {
+      const res = await fetch(`${API}/chat/stream`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({ message: text }),
