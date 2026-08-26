@@ -14,6 +14,7 @@ import ClientesPage from "@/pages/ClientesPage";
 import EstoquePage from "@/pages/EstoquePage";
 import FinanceiroPage from "@/pages/FinanceiroPage";
 import ConfiguracoesPage from "@/pages/ConfiguracoesPage";
+import CommandCenterPage from "@/pages/CommandCenterPage";
 
 function ProtectedRoute({ children }) {
   const { token, loading } = useAuth();
@@ -47,8 +48,12 @@ function App() {
               }
             >
               <Route index element={<Navigate to="/dashboard" replace />} />
-              <Route path="dashboard" element={<DashboardPage />} />
+              <Route path="dashboard" element={<CommandCenterPage />} />
               <Route path="chat" element={<ChatPage />} />
+              <Route path="investigar" element={<ChatPage mode="investigate" />} />
+              <Route path="simular" element={<ChatPage mode="simulate" />} />
+              <Route path="acoes" element={<RadarPage />} />
+              <Route path="dados" element={<DashboardPage />} />
               <Route path="radar" element={<RadarPage />} />
               <Route path="clientes" element={<ClientesPage />} />
               <Route path="estoque" element={<EstoquePage />} />

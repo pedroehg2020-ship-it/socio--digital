@@ -40,10 +40,22 @@ Web app que atua como co-administrador da empresa ("Sócio Digital"): monitora d
 - Omie/Bling/Asaas, Open Finance, WhatsApp/Twilio, voice input, marketplace de skills — Fases futuras (Melhorias Futuras)
 - Projeção de metas diária detalhada — não implementada nesta rodada
 
+## Implemented (2026-08-26) — Fase 1 Central de Comando
+- Central de Comando (/dashboard): saudação por horário (Bom dia/tarde/noite), briefing executivo, nota de saúde (5 pilares, margem negativa penaliza), card de prioridade do dia (fundo navy), insights com evidências, campo de pergunta → chat
+- Modo demonstração (empresa vazia): banner, dados fictícios, saudação com nome real do usuário, chat bloqueado com toast informativo
+- Seed demo idempotente: /app/backend/seed_demo.py — demo@sociodigital.com / Demo@123, empresa "Aroma Brasil Cafés" (236 tx / 8 produtos / 10 clientes / 9 alertas)
+- Fix HIGH: prompt da Central disparava o chat 3x (useEffect deps instáveis) → ref-guard + limpeza do ?prompt; useChat agora usa targeting por ID e aguarda histórico (sem duplicatas/corrida)
+- Chat renderiza tabelas markdown (remark-gfm); pct_change suprime % em inversão de sinal; títulos do topbar para /radar,/clientes,/estoque,/financeiro
+- Redesign colorido: sidebar navy escura (desktop+mobile), fundo tonalizado, card de prioridade ink, KPIs com borda superior semântica, barra de saúde com cor por faixa
+- Testes: 39 pytest passed (suites em /app/backend/tests), fluxo chat validado via Playwright (1 request, 0 erros)
+- IA: usa EMERGENT_LLM_KEY (decisão do usuário: "prossiga com emergent key por enquanto")
+
 ## Backlog Prioritizado
-- P0: nenhum bloqueador conhecido
-- P1: Integração real Conta Azul (aguardando credenciais do usuário), Resend para resumo diário por e-mail (aguardando API key), deduplicação de CSV re-importado
-- P2: projeção diária de metas, Omie/Bling/Asaas, ações automatizadas com aprovação (WhatsApp/Twilio), voice input no chat
+- P1 (Fase 2 — Inteligência): Insights Engine e detecção de anomalias; sistema de Investigação (cruzamento vendas/preços/estoque)
+- P2 (Fase 2): simulador conversacional "E se?"; Memória do Negócio (metas, sazonalidade, padrões)
+- P2 (Fase 3): integração real Conta Azul (OAuth, aguarda credenciais), normalização e rastreio de fonte
+- P3 (Fase 4): Agentes especializados (Financeiro, Comercial, Estoque, Estratégico) com aprovação humana
+- P1 (legado): Resend e-mail diário (aguarda API key), deduplicação de CSV reimportado
 
 ## Next Tasks
 - Aguardar decisão do usuário sobre priorizar Conta Azul OAuth ou Resend e-mail como próximo passo

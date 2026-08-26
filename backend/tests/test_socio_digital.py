@@ -10,8 +10,9 @@ BASE_URL = os.environ.get("REACT_APP_BACKEND_URL", "").rstrip("/") or \
     open("/app/frontend/.env").read().split("REACT_APP_BACKEND_URL=")[1].split("\n")[0].strip()
 API = f"{BASE_URL}/api"
 
-EXISTING_EMAIL = "ana.souza@teste.com"
-EXISTING_PASSWORD = "senha123"
+# Demo seeded account (see /app/memory/test_credentials.md)
+EXISTING_EMAIL = "demo@sociodigital.com"
+EXISTING_PASSWORD = "Demo@123"
 
 
 @pytest.fixture(scope="session")

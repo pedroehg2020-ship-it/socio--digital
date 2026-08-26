@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { PaperPlaneRight, Sparkle, ChatCircleDots } from "@phosphor-icons/react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -65,7 +66,7 @@ export function ChatWindow({ messages, loading, onSend }) {
               )}
               {m.content ? (
                 <div className="prose-chat">
-                  <ReactMarkdown>{m.content}</ReactMarkdown>
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
                 </div>
               ) : (
                 !m.toolStatus && (

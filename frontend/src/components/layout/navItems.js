@@ -1,11 +1,11 @@
-import { ChatCircleText, SquaresFour, Siren, UsersThree, Package, Wallet, Gear } from "@phosphor-icons/react";
+import { ChatCircleText, SquaresFour, Siren, UsersThree, Package, Wallet, Gear, MagnifyingGlass, ArrowsClockwise, Lightning, Database } from "@phosphor-icons/react";
 
 export const NAV_ITEMS = [
-  { to: "/dashboard", label: "Dashboard", icon: SquaresFour },
-  { to: "/chat", label: "Chat", icon: ChatCircleText },
-  { to: "/radar", label: "Radar", icon: Siren },
-  { to: "/clientes", label: "Clientes", icon: UsersThree },
-  { to: "/estoque", label: "Estoque", icon: Package },
-  { to: "/financeiro", label: "Financeiro", icon: Wallet },
+  { to: "/dashboard", label: "Hoje", icon: SquaresFour },
+  { to: "/chat", label: "Conversar", icon: ChatCircleText },
+  { to: "/investigar", label: "Investigar", icon: MagnifyingGlass },
+  { to: "/simular", label: "Simular", icon: ArrowsClockwise },
+  { to: "/acoes", label: "Ações", icon: Lightning },
+  { to: "/dados", label: "Dados", icon: Database },
   { to: "/configuracoes", label: "Configurações", icon: Gear },
 ];

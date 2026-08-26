@@ -34,7 +34,7 @@ async def summary(current_user: UserDoc = Depends(get_current_user)):
     contas_receber = sum(t["amount"] for t in txs if t["type"] == "receita" and t["status"] == "pendente")
 
     def pct_change(cur, prev):
-        if prev == 0:
+        if prev == 0 or (cur > 0 > prev) or (cur < 0 < prev):
             return None
         return round(((cur - prev) / abs(prev)) * 100, 1)
 

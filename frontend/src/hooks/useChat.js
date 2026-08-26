@@ -5,28 +5,34 @@ const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 export function useChat() {
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [historyLoaded, setHistoryLoaded] = useState(false);
-  const busyRef = useRef(false);
+  const historyPromiseRef = useRef(null);
+  const sendingRef = useRef(false);
 
-  const loadHistory = useCallback(async () => {
-    if (historyLoaded || busyRef.current) return;
-    busyRef.current = true;
-    try {
-      const token = localStorage.getItem("sd_token");
-      const res = await fetch(`${BACKEND_URL}/api/chat/history`, { headers: { Authorization: `Bearer ${token}` } });
-      const data = await res.json();
-      setMessages(Array.isArray(data) ? data : []);
-    } finally {
-      setHistoryLoaded(true);
-      busyRef.current = false;
+  const loadHistory = useCallback(() => {
+    if (!historyPromiseRef.current) {
+      historyPromiseRef.current = (async () => {
+        try {
+          const token = localStorage.getItem("sd_token");
+          const res = await fetch(`${BACKEND_URL}/api/chat/history`, { headers: { Authorization: `Bearer ${token}` } });
+          const data = await res.json();
+          if (Array.isArray(data)) setMessages((prev) => (prev.length ? prev : data));
+        } catch {
+          historyPromiseRef.current = null;
+        }
+      })();
     }
-  }, [historyLoaded]);
+    return historyPromiseRef.current;
+  }, []);
 
   const sendMessage = useCallback(async (text) => {
-    if (!text.trim()) return;
-    setMessages((prev) => [...prev, { role: "user", content: text }, { role: "assistant", content: "" }]);
+    if (!text.trim() || sendingRef.current) return;
+    sendingRef.current = true;
     setLoading(true);
     try {
+      if (historyPromiseRef.current) await historyPromiseRef.current;
+      const msgId = `m-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      setMessages((prev) => [...prev, { role: "user", content: text }, { role: "assistant", content: "", _cid: msgId }]);
+      const patch = (updater) => setMessages((prev) => prev.map((m) => (m._cid === msgId ? updater(m) : m)));
       const token = localStorage.getItem("sd_token");
       const res = await fetch(`${BACKEND_URL}/api/chat/stream`, {
         method: "POST",
@@ -37,50 +43,46 @@ export function useChat() {
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
       let buffer = "";
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const parts = buffer.split("\n\n");
-        buffer = parts.pop();
-        for (const part of parts) {
-          if (!part.startsWith("data: ")) continue;
-          let evt;
-          try {
-            evt = JSON.parse(part.slice(6));
-          } catch {
-            continue;
-          }
-          if (evt.type === "delta") {
-            setMessages((prev) => {
-              const updated = [...prev];
-              const last = updated[updated.length - 1];
-              updated[updated.length - 1] = { ...last, content: (last.content || "") + evt.content };
-              return updated;
-            });
-          } else if (evt.type === "tool_start") {
-            setMessages((prev) => {
-              const updated = [...prev];
-              updated[updated.length - 1] = { ...updated[updated.length - 1], toolStatus: "Consultando dados da empresa..." };
-              return updated;
-            });
-          } else if (evt.type === "error") {
-            setMessages((prev) => {
-              const updated = [...prev];
-              updated[updated.length - 1] = { role: "assistant", content: evt.message };
-              return updated;
-            });
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n\n");
+          buffer = parts.pop();
+          for (const part of parts) {
+            if (!part.startsWith("data: ")) continue;
+            let evt;
+            try {
+              evt = JSON.parse(part.slice(6));
+            } catch {
+              continue;
+            }
+            if (evt.type === "delta") {
+              patch((m) => ({ ...m, content: (m.content || "") + evt.content }));
+            } else if (evt.type === "tool_start") {
+              patch((m) => ({ ...m, toolStatus: "Consultando dados da empresa..." }));
+            } else if (evt.type === "error") {
+              patch((m) => ({ ...m, content: evt.message, toolStatus: null }));
+            }
           }
         }
+      } catch (streamError) {
+        patch((m) => (m.content ? m : { ...m, content: "Desculpe, ocorreu um erro ao processar sua pergunta. Tente novamente.", toolStatus: null }));
       }
     } catch (e) {
       setMessages((prev) => {
         const updated = [...prev];
-        updated[updated.length - 1] = { role: "assistant", content: "Desculpe, ocorreu um erro ao processar sua pergunta. Tente novamente." };
-        return updated;
+        const last = updated[updated.length - 1];
+        if (last?.role === "assistant" && !last.content) {
+          updated[updated.length - 1] = { role: "assistant", content: "Desculpe, ocorreu um erro ao processar sua pergunta. Tente novamente." };
+          return updated;
+        }
+        return [...prev, { role: "assistant", content: "Desculpe, ocorreu um erro ao processar sua pergunta. Tente novamente." }];
       });
     } finally {
       setLoading(false);
+      sendingRef.current = false;
     }
   }, []);
 

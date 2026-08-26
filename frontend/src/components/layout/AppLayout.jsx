@@ -5,9 +5,12 @@ import { ThemeToggle } from "@/components/ThemeToggle";
 import { ChatWidget } from "@/components/chat/ChatWidget";
 import { NAV_ITEMS } from "./navItems";
 
+const EXTRA_TITLES = { "/radar": "Radar", "/clientes": "Clientes", "/estoque": "Estoque", "/financeiro": "Financeiro" };
+
 export default function AppLayout() {
   const location = useLocation();
   const current = NAV_ITEMS.find((i) => location.pathname.startsWith(i.to));
+  const extraTitle = Object.entries(EXTRA_TITLES).find(([path]) => location.pathname.startsWith(path))?.[1];
 
   return (
     <div className="flex min-h-screen bg-background">
@@ -17,7 +20,7 @@ export default function AppLayout() {
           <div className="flex items-center gap-3">
             <MobileNav />
             <h1 className="font-heading text-lg font-bold tracking-tight" data-testid="page-title">
-              {current?.label || "Sócio Digital"}
+              {current?.label || extraTitle || "Sócio Digital"}
             </h1>
           </div>
           <ThemeToggle />

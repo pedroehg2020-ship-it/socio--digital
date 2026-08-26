@@ -7,7 +7,7 @@ function formatCurrency(v) {
 export function KpiCard({ label, value, variacao, tone = "neutral", testId }) {
   const toneClass = tone === "credit" ? "text-credit" : tone === "debit" ? "text-debit" : tone === "warning" ? "text-warning" : "text-foreground";
   return (
-    <div className="bg-card border border-border rounded-lg p-6 hover:-translate-y-[1px] hover:border-foreground/20 transition-transform h-full" data-testid={testId}>
+    <div className="bg-card border border-border border-t-2 rounded-lg p-6 hover:-translate-y-[1px] hover:border-foreground/20 transition-transform h-full" style={{ borderTopColor: tone === "credit" ? "hsl(var(--credit))" : tone === "debit" ? "hsl(var(--debit))" : tone === "warning" ? "hsl(var(--warning))" : "hsl(var(--primary))" }} data-testid={testId}>
       <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
       <p className={`mt-2 text-2xl font-bold tabular-nums ${toneClass}`}>{formatCurrency(value)}</p>
       {variacao !== null && variacao !== undefined && (
