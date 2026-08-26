@@ -34,7 +34,4 @@ services:
         destination: /index.html
     envVars:
       - key: REACT_APP_BACKEND_URL
-        fromService:
-          type: web
-          name: socio-digital-api
-          property: host
+        value: "https://socio-digital-api.onrender.com"
