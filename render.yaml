@@ -1,37 +1,34 @@
 services:
-  # 1. Backend API (FastAPI)
   - type: web
-    name: socio-digital-api
-    runtime: python
-    plan: free
-    rootDir: backend
-    buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn server:app --host 0.0.0.0 --port $PORT
+    name: socio-digital
+    runtime: docker
+    healthCheckPath: /
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.11.9
-      - key: MONGO_URL
-        value: ""
-      - key: DB_NAME
-        value: socio_digital
-      - key: JWT_SECRET
-        generateValue: true
-      - key: CORS_ORIGINS
-        value: "*"
-      - key: GEMINI_API_KEY
-        value: ""
-
-  # 2. Frontend Web App (React Static Site)
-  - type: web
-    name: socio-digital-web
-    runtime: static
-    rootDir: frontend
-    buildCommand: yarn && yarn build
-    staticPublishPath: build
-    routes:
-      - type: rewrite
-        source: /*
-        destination: /index.html
-    envVars:
-      - key: REACT_APP_BACKEND_URL
-        value: "https://socio-digital-api.onrender.com"
+      - key: APP_ENV
+        value: production
+      - key: FRONTEND_URL
+        sync: false
+      - key: SQLITE_PATH
+        sync: false
+      - key: OAUTH_STATE_SECRET
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+      - key: CONTAAZUL_CLIENT_ID
+        sync: false
+      - key: CONTAAZUL_CLIENT_SECRET
+        sync: false
+      - key: CONTAAZUL_REDIRECT_URI
+        sync: false
+      - key: CONTAAZUL_SCOPES
+        value: openid profile aws.cognito.signin.user.admin
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-5.6-luna
+      - key: WHATSAPP_SEND_URL
+        sync: false
+      - key: WHATSAPP_TOKEN
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false

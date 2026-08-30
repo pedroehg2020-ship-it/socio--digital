@@ -1,0 +1,1184 @@
+diff --git a/INTEGRACAO_CONTA_AZUL.md b/INTEGRACAO_CONTA_AZUL.md
+new file mode 100644
+index 0000000..0c3a08d
+--- /dev/null
++++ b/INTEGRACAO_CONTA_AZUL.md
+@@ -0,0 +1,39 @@
++# Integração Conta Azul (OAuth2) — como ativar
++
++## O que foi implementado
++- `backend/models.py` — novo `IntegrationDoc` (guarda tokens por empresa)
++- `backend/integrations/contaazul.py` — cliente OAuth2 (authorize URL, troca de code por token, refresh)
++- `backend/integrations/token_store.py` — helper `get_valid_access_token(company_id)` com refresh automático, pronto para ser usado por jobs de sincronização futuros (radar, chat tools)
++- `backend/routes/integration_routes.py` — endpoints:
++  - `GET /api/integrations/contaazul/status` — se está configurado/conectado
++  - `GET /api/integrations/contaazul/connect` — retorna a URL de autorização (owner/manager)
++  - `GET /api/integrations/contaazul/callback` — recebe o redirect da Conta Azul, troca o code por tokens e redireciona de volta ao app
++  - `POST /api/integrations/contaazul/disconnect`
++- `backend/server.py` — router registrado
++- `frontend/src/pages/ConfiguracoesPage.jsx` — card "Integrações" com botão Conectar/Desconectar
++
++## Passo a passo para ativar
++
++### 1. Criar a aplicação no portal de desenvolvedores
++1. Acesse https://portaldevs.contaazul.com/ e crie sua conta de desenvolvedor.
++2. Crie uma nova aplicação em "Minhas Aplicações".
++3. Cadastre a URL de redirecionamento (**exatamente igual** à que você vai colocar em `CONTAAZUL_REDIRECT_URI`, ex.: `https://SEU_DOMINIO_BACKEND/api/integrations/contaazul/callback`).
++4. Anote o `client_id` e o `client_secret` gerados.
++
++### 2. Configurar variáveis de ambiente no backend (`backend/.env`)
++```
++CONTAAZUL_CLIENT_ID=xxxxx
++CONTAAZUL_CLIENT_SECRET=xxxxx
++CONTAAZUL_REDIRECT_URI=https://SEU_DOMINIO_BACKEND/api/integrations/contaazul/callback
++FRONTEND_URL=https://SEU_DOMINIO_FRONTEND
++```
++(`FRONTEND_URL` já deve existir/ser parecido com o que você usa para CORS_ORIGINS — é para onde o usuário volta depois de autorizar.)
++
++### 3. Testar o fluxo
++1. Reinicie o backend para carregar as novas variáveis.
++2. Faça login no app como `owner` ou `manager` e vá em **Configurações**.
++3. Clique em **Conectar Conta Azul** — você será levado à tela de login da Conta Azul.
++4. Após autorizar, você volta para `/configuracoes?contaazul=connected` e o card mostra "Conectado".
++
++## O que ainda falta (próxima etapa, fora do escopo desta rodada)
++A conexão OAuth em si está pronta, mas a **sincronização de dados** (trazer vendas/contas a pagar da Conta Azul para o Dashboard e Radar) ainda precisa ser construída: isso envolve mapear os endpoints de recursos da API v2 da Conta Azul (vendas, eventos financeiros) para o `TransactionDoc`, decidir a frequência de sync (o `scheduler.py` já roda a cada 6h e pode ganhar esse job) e tratar deduplicação. Posso seguir com isso quando você quiser.
+diff --git a/backend/integrations/__init__.py b/backend/integrations/__init__.py
+new file mode 100644
+index 0000000..e69de29
+diff --git a/backend/integrations/contaazul.py b/backend/integrations/contaazul.py
+new file mode 100644
+index 0000000..bcfe22d
+--- /dev/null
++++ b/backend/integrations/contaazul.py
+@@ -0,0 +1,124 @@
++"""
++Cliente OAuth2 para a API da Conta Azul (nova API, developers.contaazul.com).
++
++Fluxo:
++1. build_authorize_url()   -> URL para redirecionar o usuário (tela de login/consentimento)
++2. exchange_code_for_tokens(code) -> troca o "code" recebido no callback por access/refresh token
++3. refresh_access_token(refresh_token) -> renova o access_token quando expira
++4. authenticated_request(...) -> chamada autenticada à API, com refresh automático em caso de 401
++
++Credenciais da aplicação (obtidas em https://portaldevs.contaazul.com/ -> "Minhas Aplicações"):
++    CONTAAZUL_CLIENT_ID
++    CONTAAZUL_CLIENT_SECRET
++    CONTAAZUL_REDIRECT_URI   (deve ser cadastrada identicamente no portal de devs)
++"""
++import base64
++import os
++from datetime import datetime, timedelta, timezone
++from urllib.parse import urlencode
++
++import httpx
++
++AUTH_BASE_URL = "https://auth.contaazul.com"
++API_BASE_URL = "https://api-v2.contaazul.com"
++AUTHORIZE_PATH = "/login"
++TOKEN_PATH = "/oauth2/token"
++
++# Escopos necessários para o MVP: leitura de vendas e financeiro.
++# Ajustar conforme os recursos liberados para a aplicação no portal de devs.
++DEFAULT_SCOPES = "openid profile aws.cognito.signin.user.admin"
++
++
++class ContaAzulConfigError(RuntimeError):
++    """Credenciais da aplicação Conta Azul não configuradas no .env."""
++
++
++def _get_config():
++    client_id = os.environ.get("CONTAAZUL_CLIENT_ID")
++    client_secret = os.environ.get("CONTAAZUL_CLIENT_SECRET")
++    redirect_uri = os.environ.get("CONTAAZUL_REDIRECT_URI")
++    if not client_id or not client_secret or not redirect_uri:
++        raise ContaAzulConfigError(
++            "Integração Conta Azul não configurada. Defina CONTAAZUL_CLIENT_ID, "
++            "CONTAAZUL_CLIENT_SECRET e CONTAAZUL_REDIRECT_URI no .env do backend."
++        )
++    return client_id, client_secret, redirect_uri
++
++
++def is_configured() -> bool:
++    try:
++        _get_config()
++        return True
++    except ContaAzulConfigError:
++        return False
++
++
++def _basic_auth_header(client_id: str, client_secret: str) -> str:
++    raw = f"{client_id}:{client_secret}".encode()
++    return "Basic " + base64.b64encode(raw).decode()
++
++
++def build_authorize_url(state: str) -> str:
++    """Monta a URL para onde o usuário deve ser redirecionado para autorizar o app."""
++    client_id, _client_secret, redirect_uri = _get_config()
++    params = {
++        "response_type": "code",
++        "client_id": client_id,
++        "redirect_uri": redirect_uri,
++        "state": state,
++        "scope": DEFAULT_SCOPES,
++    }
++    return f"{AUTH_BASE_URL}{AUTHORIZE_PATH}?{urlencode(params)}"
++
++
++async def exchange_code_for_tokens(code: str) -> dict:
++    """Troca o authorization_code recebido no callback pelos tokens de acesso."""
++    client_id, client_secret, redirect_uri = _get_config()
++    headers = {
++        "Authorization": _basic_auth_header(client_id, client_secret),
++        "Content-Type": "application/x-www-form-urlencoded",
++    }
++    data = {
++        "grant_type": "authorization_code",
++        "code": code,
++        "redirect_uri": redirect_uri,
++    }
++    async with httpx.AsyncClient(timeout=30) as http:
++        resp = await http.post(f"{AUTH_BASE_URL}{TOKEN_PATH}", headers=headers, data=data)
++    resp.raise_for_status()
++    return resp.json()
++
++
++async def refresh_access_token(refresh_token: str) -> dict:
++    """Usa o refresh_token para obter um novo access_token."""
++    client_id, client_secret, _redirect_uri = _get_config()
++    headers = {
++        "Authorization": _basic_auth_header(client_id, client_secret),
++        "Content-Type": "application/x-www-form-urlencoded",
++    }
++    data = {
++        "grant_type": "refresh_token",
++        "refresh_token": refresh_token,
++    }
++    async with httpx.AsyncClient(timeout=30) as http:
++        resp = await http.post(f"{AUTH_BASE_URL}{TOKEN_PATH}", headers=headers, data=data)
++    resp.raise_for_status()
++    return resp.json()
++
++
++def tokens_to_fields(token_response: dict) -> dict:
++    """Converte a resposta do token endpoint nos campos persistidos em IntegrationDoc."""
++    expires_in = token_response.get("expires_in", 3600)
++    return {
++        "access_token": token_response["access_token"],
++        "refresh_token": token_response.get("refresh_token"),
++        "expires_at": datetime.now(timezone.utc) + timedelta(seconds=expires_in),
++    }
++
++
++async def authenticated_request(method: str, path: str, access_token: str, **kwargs) -> httpx.Response:
++    """Chamada autenticada a um endpoint de recurso da API (ex.: /v1/venda, /v1/financeiro/eventos-financeiros)."""
++    headers = kwargs.pop("headers", {})
++    headers["Authorization"] = f"Bearer {access_token}"
++    async with httpx.AsyncClient(timeout=30) as http:
++        return await http.request(method, f"{API_BASE_URL}{path}", headers=headers, **kwargs)
+diff --git a/backend/integrations/token_store.py b/backend/integrations/token_store.py
+new file mode 100644
+index 0000000..aa089c6
+--- /dev/null
++++ b/backend/integrations/token_store.py
+@@ -0,0 +1,39 @@
++"""
++Ponto único para qualquer parte do sistema (radar, chat tools, jobs de sync)
++obter um access_token válido da Conta Azul para uma empresa, renovando
++automaticamente quando necessário. Mantém o refresh_token sempre atualizado
++no Mongo (a Conta Azul pode rotacionar o refresh_token a cada renovação).
++"""
++from datetime import datetime, timedelta, timezone
++from typing import Optional
++
++from database import db
++from integrations import contaazul
++
++
++async def get_valid_access_token(company_id: str) -> Optional[str]:
++    """Retorna um access_token válido para a empresa, ou None se não conectada."""
++    doc = await db.integrations.find_one({"company_id": company_id, "provider": "contaazul"})
++    if not doc or doc.get("status") != "connected":
++        return None
++
++    expires_at = doc["expires_at"]
++    if expires_at.tzinfo is None:
++        expires_at = expires_at.replace(tzinfo=timezone.utc)
++
++    # renova com 2 min de folga antes de expirar
++    if expires_at > datetime.now(timezone.utc) + timedelta(minutes=2):
++        return doc["access_token"]
++
++    try:
++        token_response = await contaazul.refresh_access_token(doc["refresh_token"])
++    except Exception:
++        await db.integrations.update_one({"_id": doc["_id"]}, {"$set": {"status": "error"}})
++        return None
++
++    fields = contaazul.tokens_to_fields(token_response)
++    await db.integrations.update_one(
++        {"_id": doc["_id"]},
++        {"$set": {**fields, "status": "connected", "updated_at": datetime.now(timezone.utc)}},
++    )
++    return fields["access_token"]
+diff --git a/backend/models.py b/backend/models.py
+index 84ce40c..aef69e0 100644
+--- a/backend/models.py
++++ b/backend/models.py
+@@ -92,3 +92,16 @@ class ChatMessageDoc(BaseDocument):
+     role: str
+     content: str
+     created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
++
++
++class IntegrationDoc(BaseDocument):
++    company_id: str
++    provider: str  # "contaazul"
++    access_token: str
++    refresh_token: str
++    expires_at: datetime
++    connected_by: str
++    status: str = "connected"  # connected | error | disconnected
++    last_sync_at: Optional[datetime] = None
++    created_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
++    updated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
+diff --git a/backend/routes/chat_routes.py b/backend/routes/chat_routes.py
+index 87409a8..249f516 100644
+--- a/backend/routes/chat_routes.py
++++ b/backend/routes/chat_routes.py
+@@ -25,8 +25,13 @@ Regras:
+ - Sempre use as ferramentas disponíveis para consultar dados reais da empresa antes de responder perguntas sobre números, vendas, clientes, estoque ou alertas. Nunca invente valores.
+ - Explique o "porquê" das suas respostas e recomendações com transparência, citando os dados usados.
+ - Seja direto, objetivo e use linguagem natural em português do Brasil. Evite jargão técnico.
+-- Quando fizer sentido, termine a resposta com uma seção "Ações sugeridas:" listando de 1 a 3 ações concretas e específicas.
+-- Se não houver dados suficientes (empresa sem CSV importado), oriente o empresário a fazer o upload da planilha na tela de Configurações."""
++- Quando fizer sentido, termine a resposta com "**Ações sugeridas:**" seguido de uma lista de 1 a 3 ações concretas e específicas.
++- Se não houver dados suficientes (empresa sem CSV importado), oriente o empresário a fazer o upload da planilha na tela de Configurações.
++
++Formatação (a resposta aparece em uma janela de chat estreita):
++- Nunca use linhas divisórias markdown (---). Separe ideias com parágrafos curtos, não com divisórias.
++- Nunca use títulos markdown (#, ##, ###). Use no máximo texto em negrito para destacar um rótulo curto (ex.: "**Ações sugeridas:**").
++- Prefira parágrafos curtos e listas simples de um nível só. Evite listas aninhadas."""
+ 
+ HISTORY_LIMIT = 20
+ 
+diff --git a/backend/routes/integration_routes.py b/backend/routes/integration_routes.py
+new file mode 100644
+index 0000000..e92dd8e
+--- /dev/null
++++ b/backend/routes/integration_routes.py
+@@ -0,0 +1,116 @@
++import logging
++import os
++import secrets
++from datetime import datetime, timezone
++
++from fastapi import APIRouter, Depends, HTTPException, Query
++from fastapi.responses import RedirectResponse
++
++from database import db
++from models import UserDoc, IntegrationDoc
++from auth import get_current_user, require_role, JWT_SECRET
++import jwt as pyjwt
++from integrations import contaazul
++
++logger = logging.getLogger(__name__)
++router = APIRouter(prefix="/integrations", tags=["integrations"])
++
++FRONTEND_URL = os.environ.get("FRONTEND_URL", "http://localhost:3000")
++
++# state assinado (JWT curto) para o callback do OAuth carregar de volta o company_id/user_id
++# sem depender de sessão de cookie (a Conta Azul redireciona o navegador do usuário).
++STATE_ALGORITHM = "HS256"
++
++
++def _build_state(company_id: str, user_id: str) -> str:
++    payload = {
++        "company_id": company_id,
++        "user_id": user_id,
++        "nonce": secrets.token_hex(8),
++    }
++    return pyjwt.encode(payload, JWT_SECRET, algorithm=STATE_ALGORITHM)
++
++
++def _parse_state(state: str) -> dict:
++    try:
++        return pyjwt.decode(state, JWT_SECRET, algorithms=[STATE_ALGORITHM])
++    except pyjwt.PyJWTError:
++        raise HTTPException(status_code=400, detail="Parâmetro state inválido ou expirado")
++
++
++@router.get("/contaazul/status")
++async def contaazul_status(current_user: UserDoc = Depends(get_current_user)):
++    if not contaazul.is_configured():
++        return {"configured": False, "connected": False}
++    doc = await db.integrations.find_one({"company_id": current_user.company_id, "provider": "contaazul"})
++    if not doc or doc.get("status") != "connected":
++        return {"configured": True, "connected": False}
++    integration = IntegrationDoc.from_mongo(doc)
++    return {
++        "configured": True,
++        "connected": True,
++        "last_sync_at": integration.last_sync_at,
++        "connected_at": integration.created_at,
++    }
++
++
++@router.get("/contaazul/connect")
++async def contaazul_connect(current_user: UserDoc = Depends(require_role("owner", "manager"))):
++    """Retorna a URL de autorização para o frontend redirecionar o usuário."""
++    if not contaazul.is_configured():
++        raise HTTPException(
++            status_code=400,
++            detail="Integração Conta Azul ainda não configurada (credenciais da aplicação ausentes).",
++        )
++    state = _build_state(current_user.company_id, current_user.id)
++    return {"authorize_url": contaazul.build_authorize_url(state)}
++
++
++@router.get("/contaazul/callback")
++async def contaazul_callback(code: str = Query(None), state: str = Query(None), error: str = Query(None)):
++    """Endpoint de redirecionamento cadastrado no portal de devs da Conta Azul."""
++    if error:
++        return RedirectResponse(f"{FRONTEND_URL}/configuracoes?contaazul=error")
++    if not code or not state:
++        return RedirectResponse(f"{FRONTEND_URL}/configuracoes?contaazul=error")
++
++    claims = _parse_state(state)
++    company_id = claims["company_id"]
++    user_id = claims["user_id"]
++
++    try:
++        token_response = await contaazul.exchange_code_for_tokens(code)
++    except Exception as e:
++        logger.error(f"Falha ao trocar code por token (Conta Azul, company {company_id}): {e}")
++        return RedirectResponse(f"{FRONTEND_URL}/configuracoes?contaazul=error")
++
++    fields = contaazul.tokens_to_fields(token_response)
++    now = datetime.now(timezone.utc)
++    existing = await db.integrations.find_one({"company_id": company_id, "provider": "contaazul"})
++    if existing:
++        await db.integrations.update_one(
++            {"_id": existing["_id"]},
++            {"$set": {**fields, "status": "connected", "connected_by": user_id, "updated_at": now}},
++        )
++    else:
++        integration = IntegrationDoc(
++            company_id=company_id,
++            provider="contaazul",
++            connected_by=user_id,
++            status="connected",
++            **fields,
++        )
++        await db.integrations.insert_one(integration.to_mongo())
++
++    return RedirectResponse(f"{FRONTEND_URL}/configuracoes?contaazul=connected")
++
++
++@router.post("/contaazul/disconnect")
++async def contaazul_disconnect(current_user: UserDoc = Depends(require_role("owner", "manager"))):
++    result = await db.integrations.update_one(
++        {"company_id": current_user.company_id, "provider": "contaazul"},
++        {"$set": {"status": "disconnected", "updated_at": datetime.now(timezone.utc)}},
++    )
++    if result.matched_count == 0:
++        raise HTTPException(status_code=404, detail="Nenhuma conexão com a Conta Azul encontrada")
++    return {"success": True}
+diff --git a/backend/server.py b/backend/server.py
+index c6b7806..8cebcab 100644
+--- a/backend/server.py
++++ b/backend/server.py
+@@ -20,6 +20,7 @@ from routes import (
+     radar_routes,
+     customer_routes,
+     inventory_routes,
++    integration_routes,
+ )
+ from scheduler import start_scheduler
+ 
+@@ -41,6 +42,7 @@ api_router.include_router(chat_routes.router)
+ api_router.include_router(radar_routes.router)
+ api_router.include_router(customer_routes.router)
+ api_router.include_router(inventory_routes.router)
++api_router.include_router(integration_routes.router)
+ 
+ app.include_router(api_router)
+ 
+diff --git a/frontend/package.json b/frontend/package.json
+index 1f37bd8..45e5611 100644
+--- a/frontend/package.json
++++ b/frontend/package.json
+@@ -55,6 +55,7 @@
+     "react-router-dom": "7.15.0",
+     "react-scripts": "5.0.1",
+     "recharts": "3.6.0",
++    "remark-gfm": "^4.0.0",
+     "sonner": "2.0.3",
+     "swr": "2.3.8",
+     "tailwind-merge": "3.2.0",
+diff --git a/frontend/public/favicon.svg b/frontend/public/favicon.svg
+new file mode 100644
+index 0000000..453d000
+--- /dev/null
++++ b/frontend/public/favicon.svg
+@@ -0,0 +1,5 @@
++<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
++  <rect width="32" height="32" rx="7" fill="#2563EB"/>
++  <path d="M7 21.5 L13 15 L17.5 18.5 L25 9.5" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
++  <path d="M19.5 9.5 H25 V15" stroke="#FFFFFF" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
++</svg>
+diff --git a/frontend/public/index.html b/frontend/public/index.html
+index f11fcb8..ad47ec6 100644
+--- a/frontend/public/index.html
++++ b/frontend/public/index.html
+@@ -1,10 +1,11 @@
+ <!doctype html>
+-<html lang="en">
++<html lang="pt-BR">
+     <head>
+         <meta charset="utf-8" />
+         <meta name="viewport" content="width=device-width, initial-scale=1" />
+-        <meta name="theme-color" content="#000000" />
+-        <meta name="description" content="A product of emergent.sh" />
++        <meta name="theme-color" content="#2563EB" />
++        <meta name="description" content="Sócio Digital — assistente executivo com IA que acompanha sua empresa em tempo real, antecipa problemas e ajuda você a decidir." />
++        <link rel="icon" type="image/svg+xml" href="%PUBLIC_URL%/favicon.svg" />
+         <link rel="preconnect" href="https://fonts.googleapis.com" />
+         <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
+@@ -21,7 +22,7 @@
+         work correctly both with client-side routing and a non-root public URL.
+         Learn how to configure a non-root public URL by running `npm run build`.
+         -->
+-        <title>Emergent | Fullstack App</title>
++        <title>Sócio Digital — Assistente Executivo com IA</title>
+         <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
+         <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
+     </head>
+diff --git a/frontend/src/App.js b/frontend/src/App.js
+index f05e789..5bc6bee 100644
+--- a/frontend/src/App.js
++++ b/frontend/src/App.js
+@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+ import { ThemeProvider } from "next-themes";
+ import { Toaster } from "@/components/ui/sonner";
+ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
++import LandingPage from "@/pages/LandingPage";
+ import LoginPage from "@/pages/LoginPage";
+ import RegisterPage from "@/pages/RegisterPage";
+ import OnboardingPage from "@/pages/OnboardingPage";
+@@ -22,14 +23,43 @@ function ProtectedRoute({ children }) {
+   return children;
+ }
+ 
++function PublicOnlyRoute({ children }) {
++  const { token, loading } = useAuth();
++  if (loading) return null;
++  if (token) return <Navigate to="/dashboard" replace />;
++  return children;
++}
++
+ function App() {
+   return (
+     <ThemeProvider attribute="class" defaultTheme="light" enableSystem={false}>
+       <AuthProvider>
+         <BrowserRouter>
+           <Routes>
+-            <Route path="/login" element={<LoginPage />} />
+-            <Route path="/register" element={<RegisterPage />} />
++            <Route
++              path="/"
++              element={
++                <PublicOnlyRoute>
++                  <LandingPage />
++                </PublicOnlyRoute>
++              }
++            />
++            <Route
++              path="/login"
++              element={
++                <PublicOnlyRoute>
++                  <LoginPage />
++                </PublicOnlyRoute>
++              }
++            />
++            <Route
++              path="/register"
++              element={
++                <PublicOnlyRoute>
++                  <RegisterPage />
++                </PublicOnlyRoute>
++              }
++            />
+             <Route
+               path="/onboarding"
+               element={
+@@ -39,14 +69,12 @@ function App() {
+               }
+             />
+             <Route
+-              path="/"
+               element={
+                 <ProtectedRoute>
+                   <AppLayout />
+                 </ProtectedRoute>
+               }
+             >
+-              <Route index element={<Navigate to="/dashboard" replace />} />
+               <Route path="dashboard" element={<DashboardPage />} />
+               <Route path="chat" element={<ChatPage />} />
+               <Route path="radar" element={<RadarPage />} />
+@@ -55,7 +83,7 @@ function App() {
+               <Route path="financeiro" element={<FinanceiroPage />} />
+               <Route path="configuracoes" element={<ConfiguracoesPage />} />
+             </Route>
+-            <Route path="*" element={<Navigate to="/dashboard" replace />} />
++            <Route path="*" element={<Navigate to="/" replace />} />
+           </Routes>
+         </BrowserRouter>
+         <Toaster position="top-right" />
+diff --git a/frontend/src/components/chat/ChatWidget.jsx b/frontend/src/components/chat/ChatWidget.jsx
+index 63080ef..0e21fd8 100644
+--- a/frontend/src/components/chat/ChatWidget.jsx
++++ b/frontend/src/components/chat/ChatWidget.jsx
+@@ -22,7 +22,7 @@ export function ChatWidget() {
+       </button>
+       {open && (
+         <div
+-          className="fixed bottom-24 right-6 z-40 w-[380px] max-w-[90vw] h-[560px] max-h-[70vh] bg-card border border-border rounded-xl shadow-2xl flex flex-col p-4"
++          className="fixed bottom-24 right-6 z-40 w-[380px] max-w-[90vw] h-[560px] max-h-[70vh] bg-card border border-border rounded-lg shadow-xl flex flex-col p-4"
+           data-testid="chat-widget-panel"
+         >
+           <div className="flex items-center justify-between pb-3 border-b border-border mb-3">
+diff --git a/frontend/src/components/chat/ChatWindow.jsx b/frontend/src/components/chat/ChatWindow.jsx
+index 0e99e6a..211724c 100644
+--- a/frontend/src/components/chat/ChatWindow.jsx
++++ b/frontend/src/components/chat/ChatWindow.jsx
+@@ -1,5 +1,6 @@
+ import { useEffect, useRef, useState } from "react";
+ import ReactMarkdown from "react-markdown";
++import remarkGfm from "remark-gfm";
+ import { PaperPlaneRight, Sparkle, ChatCircleDots } from "@phosphor-icons/react";
+ import { Button } from "@/components/ui/button";
+ import { Textarea } from "@/components/ui/textarea";
+@@ -30,7 +31,7 @@ export function ChatWindow({ messages, loading, onSend }) {
+       <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+         {messages.length === 0 && (
+           <div className="flex flex-col items-center justify-center h-full text-center gap-4 py-8">
+-            <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center">
++            <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center">
+               <ChatCircleDots size={28} className="text-primary" weight="duotone" />
+             </div>
+             <div>
+@@ -52,9 +53,14 @@ export function ChatWindow({ messages, loading, onSend }) {
+           </div>
+         )}
+         {messages.map((m, i) => (
+-          <div key={i} className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`} data-testid={`chat-message-${m.role}`}>
++          <div key={i} className={`flex items-end gap-2 ${m.role === "user" ? "justify-end" : "justify-start"}`} data-testid={`chat-message-${m.role}`}>
++            {m.role === "assistant" && (
++              <div className="w-6 h-6 rounded-md bg-primary/10 flex items-center justify-center shrink-0 mb-0.5">
++                <Sparkle size={13} weight="fill" className="text-primary" />
++              </div>
++            )}
+             <div
+-              className={`max-w-[85%] rounded-xl px-4 py-2.5 text-sm leading-relaxed ${
++              className={`max-w-[85%] rounded-lg px-4 py-2.5 text-sm leading-relaxed ${
+                 m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted text-foreground"
+               }`}
+             >
+@@ -65,7 +71,7 @@ export function ChatWindow({ messages, loading, onSend }) {
+               )}
+               {m.content ? (
+                 <div className="prose-chat">
+-                  <ReactMarkdown>{m.content}</ReactMarkdown>
++                  <ReactMarkdown remarkPlugins={[remarkGfm]}>{m.content}</ReactMarkdown>
+                 </div>
+               ) : (
+                 !m.toolStatus && (
+diff --git a/frontend/src/components/dashboard/KpiCard.jsx b/frontend/src/components/dashboard/KpiCard.jsx
+index 059cdce..4a7c71a 100644
+--- a/frontend/src/components/dashboard/KpiCard.jsx
++++ b/frontend/src/components/dashboard/KpiCard.jsx
+@@ -4,8 +4,25 @@ function formatCurrency(v) {
+   return new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(v ?? 0);
+ }
+ 
+-export function KpiCard({ label, value, variacao, tone = "neutral", testId }) {
++export function KpiCard({ label, value, variacao, tone = "neutral", testId, hero = false }) {
+   const toneClass = tone === "credit" ? "text-credit" : tone === "debit" ? "text-debit" : tone === "warning" ? "text-warning" : "text-foreground";
++
++  if (hero) {
++    const heroBg = tone === "credit" ? "bg-credit-subtle" : tone === "debit" ? "bg-debit-subtle" : "bg-secondary";
++    return (
++      <div className={`${heroBg} border border-border rounded-lg p-6 md:p-8 h-full flex flex-col justify-center`} data-testid={testId}>
++        <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
++        <p className={`mt-2 text-4xl md:text-5xl font-bold tabular-nums tracking-tight ${toneClass}`}>{formatCurrency(value)}</p>
++        {variacao !== null && variacao !== undefined && (
++          <div className={`mt-3 inline-flex items-center gap-1 text-sm font-medium w-fit ${variacao >= 0 ? "text-credit" : "text-debit"}`}>
++            {variacao >= 0 ? <TrendUp size={16} /> : <TrendDown size={16} />}
++            {Math.abs(variacao)}% vs mês anterior
++          </div>
++        )}
++      </div>
++    );
++  }
++
+   return (
+     <div className="bg-card border border-border rounded-lg p-6 hover:-translate-y-[1px] hover:border-foreground/20 transition-transform h-full" data-testid={testId}>
+       <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">{label}</p>
+diff --git a/frontend/src/components/layout/AppLayout.jsx b/frontend/src/components/layout/AppLayout.jsx
+index 9714c9e..84fda39 100644
+--- a/frontend/src/components/layout/AppLayout.jsx
++++ b/frontend/src/components/layout/AppLayout.jsx
+@@ -4,9 +4,11 @@ import { MobileNav } from "./MobileNav";
+ import { ThemeToggle } from "@/components/ThemeToggle";
+ import { ChatWidget } from "@/components/chat/ChatWidget";
+ import { NAV_ITEMS } from "./navItems";
++import { useAuth } from "@/contexts/AuthContext";
+ 
+ export default function AppLayout() {
+   const location = useLocation();
++  const { company } = useAuth();
+   const current = NAV_ITEMS.find((i) => location.pathname.startsWith(i.to));
+ 
+   return (
+@@ -14,11 +16,16 @@ export default function AppLayout() {
+       <Sidebar />
+       <div className="flex-1 flex flex-col min-w-0">
+         <header className="h-16 border-b border-border flex items-center justify-between px-4 md:px-8 bg-card sticky top-0 z-30">
+-          <div className="flex items-center gap-3">
++          <div className="flex items-center gap-3 min-w-0">
+             <MobileNav />
+-            <h1 className="font-heading text-lg font-bold tracking-tight" data-testid="page-title">
+-              {current?.label || "Sócio Digital"}
+-            </h1>
++            <div className="min-w-0">
++              <h1 className="font-heading text-lg font-bold tracking-tight leading-none" data-testid="page-title">
++                {current?.label || "Sócio Digital"}
++              </h1>
++              {company?.name && (
++                <p className="text-xs text-muted-foreground truncate mt-0.5 hidden sm:block">{company.name}</p>
++              )}
++            </div>
+           </div>
+           <ThemeToggle />
+         </header>
+diff --git a/frontend/src/index.css b/frontend/src/index.css
+index 1b175e5..1639537 100644
+--- a/frontend/src/index.css
++++ b/frontend/src/index.css
+@@ -112,10 +112,29 @@ code {
+     .font-body { font-family: var(--font-body); }
+ }
+ 
+-.prose-chat p { margin: 0 0 0.5em 0; }
+-.prose-chat p:last-child { margin-bottom: 0; }
+-.prose-chat ul, .prose-chat ol { margin: 0.25em 0 0.5em 1.25em; }
++.prose-chat { font-size: 0.875rem; line-height: 1.6; }
++.prose-chat > *:first-child { margin-top: 0; }
++.prose-chat > *:last-child { margin-bottom: 0; }
++.prose-chat p { margin: 0 0 0.6em 0; }
++.prose-chat ul, .prose-chat ol { margin: 0.4em 0 0.6em 1.1em; padding: 0; }
++.prose-chat ul { list-style: disc; }
++.prose-chat ol { list-style: decimal; }
++.prose-chat li { margin: 0.2em 0; }
++.prose-chat li::marker { color: hsl(var(--muted-foreground)); }
+ .prose-chat strong { font-weight: 700; }
++.prose-chat em { font-style: italic; }
++.prose-chat a { color: hsl(var(--primary)); text-underline-offset: 2px; }
++.prose-chat h1, .prose-chat h2, .prose-chat h3 { font-family: var(--font-heading); font-weight: 700; font-size: 0.9375rem; margin: 0.8em 0 0.3em 0; letter-spacing: -0.01em; }
++.prose-chat h1:first-child, .prose-chat h2:first-child, .prose-chat h3:first-child { margin-top: 0; }
++.prose-chat blockquote { border-left: 2px solid hsl(var(--border)); padding-left: 0.75em; margin: 0.5em 0; color: hsl(var(--muted-foreground)); }
++.prose-chat code { background: hsl(var(--background) / 0.6); padding: 0.1em 0.35em; border-radius: 4px; font-size: 0.8125rem; }
++.prose-chat pre { background: hsl(var(--background) / 0.6); padding: 0.6em 0.8em; border-radius: 8px; overflow-x: auto; margin: 0.5em 0; }
++.prose-chat pre code { background: none; padding: 0; }
++/* Divisórias horizontais (---) poluem uma janela de chat estreita — some com elas por padrão. */
++.prose-chat hr { display: none; }
++.prose-chat table { width: 100%; border-collapse: collapse; margin: 0.5em 0; font-size: 0.8125rem; }
++.prose-chat th, .prose-chat td { border-bottom: 1px solid hsl(var(--border)); padding: 0.3em 0.5em; text-align: left; }
++.prose-chat th { font-weight: 600; color: hsl(var(--muted-foreground)); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+ 
+ @layer base {
+     [data-debug-wrapper="true"] {
+diff --git a/frontend/src/pages/ConfiguracoesPage.jsx b/frontend/src/pages/ConfiguracoesPage.jsx
+index c3fa12a..b976a63 100644
+--- a/frontend/src/pages/ConfiguracoesPage.jsx
++++ b/frontend/src/pages/ConfiguracoesPage.jsx
+@@ -1,4 +1,5 @@
+ import { useEffect, useState } from "react";
++import { useSearchParams } from "react-router-dom";
+ import { useAuth } from "@/contexts/AuthContext";
+ import { api } from "@/lib/api";
+ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
+@@ -9,7 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger, Dialog
+ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
+ import { Badge } from "@/components/ui/badge";
+ import { toast } from "@/components/ui/sonner";
+-import { UserPlus, Trash } from "@phosphor-icons/react";
++import { UserPlus, Trash, Plugs, PlugsConnected } from "@phosphor-icons/react";
+ 
+ const ROLE_LABEL = { owner: "Proprietário", manager: "Gestor", member: "Colaborador" };
+ 
+@@ -19,18 +20,65 @@ export default function ConfiguracoesPage() {
+   const [open, setOpen] = useState(false);
+   const [form, setForm] = useState({ name: "", email: "", password: "", role: "member" });
+   const [saving, setSaving] = useState(false);
++  const [searchParams, setSearchParams] = useSearchParams();
++  const [contaAzul, setContaAzul] = useState({ configured: false, connected: false, loading: true });
++  const [connecting, setConnecting] = useState(false);
+ 
+   const loadTeam = async () => {
+     const res = await api.get("/company/team");
+     setTeam(res.data);
+   };
+ 
++  const loadContaAzulStatus = async () => {
++    try {
++      const res = await api.get("/integrations/contaazul/status");
++      setContaAzul({ ...res.data, loading: false });
++    } catch {
++      setContaAzul({ configured: false, connected: false, loading: false });
++    }
++  };
++
+   useEffect(() => {
+     loadTeam();
++    loadContaAzulStatus();
+   }, []);
+ 
++  useEffect(() => {
++    const status = searchParams.get("contaazul");
++    if (status === "connected") {
++      toast.success("Conta Azul conectada com sucesso");
++      loadContaAzulStatus();
++      setSearchParams({}, { replace: true });
++    } else if (status === "error") {
++      toast.error("Não foi possível conectar com a Conta Azul. Tente novamente.");
++      setSearchParams({}, { replace: true });
++    }
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++  }, [searchParams]);
++
+   const canManage = user?.role === "owner" || user?.role === "manager";
+ 
++  const handleConnectContaAzul = async () => {
++    setConnecting(true);
++    try {
++      const res = await api.get("/integrations/contaazul/connect");
++      window.location.href = res.data.authorize_url;
++    } catch (err) {
++      toast.error(err.response?.data?.detail || "Erro ao iniciar conexão com a Conta Azul");
++      setConnecting(false);
++    }
++  };
++
++  const handleDisconnectContaAzul = async () => {
++    try {
++      await api.post("/integrations/contaazul/disconnect");
++      toast.success("Conta Azul desconectada");
++      loadContaAzulStatus();
++    } catch (err) {
++      toast.error(err.response?.data?.detail || "Erro ao desconectar");
++    }
++  };
++
+   const handleAdd = async (e) => {
+     e.preventDefault();
+     setSaving(true);
+@@ -69,6 +117,46 @@ export default function ConfiguracoesPage() {
+         </CardContent>
+       </Card>
+ 
++      <Card>
++        <CardHeader>
++          <CardTitle className="text-base">Integrações</CardTitle>
++        </CardHeader>
++        <CardContent>
++          <div className="flex items-center justify-between py-2">
++            <div className="flex items-center gap-3">
++              {contaAzul.connected ? (
++                <PlugsConnected size={22} className="text-emerald-600" />
++              ) : (
++                <Plugs size={22} className="text-muted-foreground" />
++              )}
++              <div>
++                <p className="text-sm font-medium">Conta Azul</p>
++                <p className="text-xs text-muted-foreground">
++                  {contaAzul.loading
++                    ? "Verificando conexão..."
++                    : !contaAzul.configured
++                    ? "Integração ainda não disponível nesta instância"
++                    : contaAzul.connected
++                    ? "Conectado — sincronizando dados financeiros"
++                    : "Não conectado"}
++                </p>
++              </div>
++            </div>
++            {canManage && contaAzul.configured && !contaAzul.loading && (
++              contaAzul.connected ? (
++                <Button variant="outline" size="sm" onClick={handleDisconnectContaAzul} data-testid="contaazul-disconnect-btn">
++                  Desconectar
++                </Button>
++              ) : (
++                <Button size="sm" onClick={handleConnectContaAzul} disabled={connecting} data-testid="contaazul-connect-btn">
++                  {connecting ? "Redirecionando..." : "Conectar Conta Azul"}
++                </Button>
++              )
++            )}
++          </div>
++        </CardContent>
++      </Card>
++
+       <Card>
+         <CardHeader className="flex flex-row items-center justify-between">
+           <CardTitle className="text-base">Equipe</CardTitle>
+diff --git a/frontend/src/pages/DashboardPage.jsx b/frontend/src/pages/DashboardPage.jsx
+index 2f93d8f..759c2ab 100644
+--- a/frontend/src/pages/DashboardPage.jsx
++++ b/frontend/src/pages/DashboardPage.jsx
+@@ -37,10 +37,13 @@ export default function DashboardPage() {
+   if (loading) {
+     return (
+       <div className="space-y-6" data-testid="dashboard-loading">
+-        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+-          {Array.from({ length: 6 }).map((_, i) => (
+-            <Skeleton key={i} className="h-28 rounded-lg" />
+-          ))}
++        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
++          <Skeleton className="h-40 rounded-lg lg:col-span-1" />
++          <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-4">
++            {Array.from({ length: 4 }).map((_, i) => (
++              <Skeleton key={i} className="h-28 rounded-lg" />
++            ))}
++          </div>
+         </div>
+         <Skeleton className="h-72 rounded-lg" />
+       </div>
+@@ -65,11 +68,12 @@ export default function DashboardPage() {
+ 
+   return (
+     <div className="space-y-6" data-testid="dashboard-page">
+-      <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+-        <div className="lg:col-span-2">
+-          <KpiCard label="Receita do mês" value={summary.receita_mes} variacao={summary.receita_variacao} tone="credit" testId="kpi-receita" />
++      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
++        <div className="lg:col-span-1">
++          <KpiCard label="Lucro do mês" value={summary.lucro_mes} variacao={summary.lucro_variacao} tone={summary.lucro_mes >= 0 ? "credit" : "debit"} testId="kpi-lucro" hero />
+         </div>
+-        <div className="lg:col-span-2">
++        <div className="lg:col-span-2 grid grid-cols-2 sm:grid-cols-4 gap-4">
++          <KpiCard label="Receita do mês" value={summary.receita_mes} variacao={summary.receita_variacao} tone="credit" testId="kpi-receita" />
+           <KpiCard
+             label="Despesa do mês"
+             value={summary.despesa_mes}
+@@ -77,18 +81,11 @@ export default function DashboardPage() {
+             tone="debit"
+             testId="kpi-despesa"
+           />
+-        </div>
+-        <div className="lg:col-span-2">
+-          <KpiCard label="Lucro do mês" value={summary.lucro_mes} variacao={summary.lucro_variacao} tone={summary.lucro_mes >= 0 ? "credit" : "debit"} testId="kpi-lucro" />
+-        </div>
+-        <div className="lg:col-span-2">
+           <KpiCard label="Saldo total" value={summary.saldo_total} testId="kpi-saldo" />
+-        </div>
+-        <div className="lg:col-span-2">
+           <KpiCard label="Contas a pagar" value={summary.contas_pagar} tone="warning" testId="kpi-contas-pagar" />
+-        </div>
+-        <div className="lg:col-span-2">
+-          <KpiCard label="Contas a receber" value={summary.contas_receber} tone="credit" testId="kpi-contas-receber" />
++          <div className="col-span-2 sm:col-span-4">
++            <KpiCard label="Contas a receber" value={summary.contas_receber} tone="credit" testId="kpi-contas-receber" />
++          </div>
+         </div>
+       </div>
+       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+diff --git a/frontend/src/pages/LandingPage.jsx b/frontend/src/pages/LandingPage.jsx
+new file mode 100644
+index 0000000..462c47f
+--- /dev/null
++++ b/frontend/src/pages/LandingPage.jsx
+@@ -0,0 +1,243 @@
++import { useState } from "react";
++import { Link } from "react-router-dom";
++import { Button } from "@/components/ui/button";
++import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
++import {
++  ChartLineUp,
++  ChatCircleDots,
++  Siren,
++  Wallet,
++  TrendUp,
++  ArrowRight,
++  Sparkle,
++  WarningOctagon,
++  CheckCircle,
++} from "@phosphor-icons/react";
++
++const FEATURES = [
++  {
++    icon: ChatCircleDots,
++    title: "Converse com sua empresa",
++    text: "Pergunte sobre vendas, clientes ou contas a pagar em português simples — o Sócio Digital consulta seus dados reais e responde na hora.",
++  },
++  {
++    icon: Siren,
++    title: "Radar Inteligente",
++    text: "Queda de vendas, estoque acabando, cliente sumido, conta prestes a vencer — você é avisado antes de virar problema, não depois.",
++  },
++  {
++    icon: Wallet,
++    title: "Financeiro em tempo real",
++    text: "Fluxo de caixa, lucro do mês e contas a pagar/receber sempre atualizados, sem precisar abrir relatório nenhum.",
++  },
++  {
++    icon: ChartLineUp,
++    title: "Clientes e estoque automáticos",
++    text: "Suba sua planilha e o sistema organiza clientes ativos, inativos e produtos em risco de ruptura sozinho.",
++  },
++];
++
++const DORES_GRUPOS = [
++  {
++    value: "vendas",
++    label: "Vendas & Financeiro",
++    itens: [
++      { problema: "Queda nas vendas sem aviso", solucao: "Radar Inteligente alerta na hora" },
++      { problema: "Lucro do mês é uma incógnita", solucao: "Lucro calculado em tempo real" },
++      { problema: "Preciso abrir relatório pra saber algo", solucao: "A IA te avisa por conta própria" },
++      { problema: "Pagamento automático tira o controle", solucao: "Aviso antes de qualquer débito" },
++      { problema: "Renovação de assinatura pega de surpresa", solucao: "Confirmação antecipada de renovações" },
++    ],
++  },
++  {
++    value: "sistema",
++    label: "Sistema & Integrações",
++    itens: [
++      { problema: "Integrações com outros sistemas falham", solucao: "Monitoramento automático das integrações" },
++      { problema: "Nota fiscal com falha exige processo manual", solucao: "Sincronização inteligente" },
++      { problema: "Cadastro duplicado gera retrabalho", solucao: "Reaproveita dados já existentes" },
++      { problema: "Sistema complicado, difícil de aprender", solucao: "Tudo por conversa, em português" },
++      { problema: "Estoque acaba sem previsão", solucao: "Previsão inteligente de ruptura" },
++    ],
++  },
++  {
++    value: "clientes",
++    label: "Clientes & Suporte",
++    itens: [
++      { problema: "Estoque parado imobiliza capital", solucao: "Sugestão automática de promoções" },
++      { problema: "Clientes somem e ninguém percebe", solucao: "Radar de clientes inativos" },
++      { problema: "Suporte lento, sem solução", solucao: "IA + atendimento humano juntos" },
++      { problema: "Chat reinicia e você repete tudo", solucao: "Histórico de conversa permanente" },
++      { problema: "Sem status do que está acontecendo", solucao: "Atualizações automáticas" },
++    ],
++  },
++  {
++    value: "gestao",
++    label: "Gestão & Metas",
++    itens: [
++      { problema: "Sem previsão de metas, planejamento ruim", solucao: "Projeção diária de resultados" },
++      { problema: "Finanças pessoais e da empresa se misturam", solucao: "Classificação inteligente automática" },
++      { problema: "Relatórios demais, tempo de menos", solucao: "Perguntas em linguagem natural" },
++      { problema: "Equipe trabalha sem indicadores claros", solucao: "Painel inteligente compartilhado" },
++      { problema: "Problemas só aparecem no fim do mês", solucao: "Monitoramento contínuo, todo dia" },
++    ],
++  },
++];
++
++export default function LandingPage() {
++  const [dorTab, setDorTab] = useState("vendas");
++  return (
++    <div className="min-h-screen bg-background" data-testid="landing-page">
++      <header className="h-16 flex items-center justify-between px-4 md:px-8 border-b border-border">
++        <div className="flex items-center gap-2">
++          <div className="w-8 h-8 rounded-md bg-primary flex items-center justify-center">
++            <ChartLineUp size={18} weight="bold" className="text-primary-foreground" />
++          </div>
++          <span className="font-heading font-extrabold text-lg tracking-tight">Sócio Digital</span>
++        </div>
++        <div className="flex items-center gap-2">
++          <Button variant="ghost" asChild data-testid="landing-nav-login">
++            <Link to="/login">Entrar</Link>
++          </Button>
++          <Button asChild data-testid="landing-nav-register">
++            <Link to="/register">Criar conta</Link>
++          </Button>
++        </div>
++      </header>
++
++      <main>
++        {/* Hero */}
++        <section className="px-4 md:px-8 pt-16 md:pt-24 pb-16 max-w-6xl mx-auto grid lg:grid-cols-2 gap-12 items-center">
++          <div>
++            <span className="inline-flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-primary bg-primary/10 rounded-full px-3 py-1">
++              <Sparkle size={13} weight="fill" /> Assistente executivo com IA
++            </span>
++            <h1 className="font-heading text-4xl md:text-5xl font-extrabold tracking-tight mt-5 leading-[1.1]">
++              Um sócio que nunca dorme, cuidando da sua empresa com você.
++            </h1>
++            <p className="text-base md:text-lg text-muted-foreground mt-5 max-w-lg">
++              O Sócio Digital acompanha sua empresa em tempo real, antecipa problemas e te ajuda a decidir — antes que você precise procurar o problema.
++            </p>
++            <div className="flex flex-wrap gap-3 mt-8">
++              <Button size="lg" asChild data-testid="landing-hero-register">
++                <Link to="/register">
++                  Criar conta grátis <ArrowRight size={18} />
++                </Link>
++              </Button>
++              <Button size="lg" variant="outline" asChild data-testid="landing-hero-login">
++                <Link to="/login">Já tenho conta</Link>
++              </Button>
++            </div>
++          </div>
++
++          {/* Signature visual: a live-looking preview of the cockpit itself */}
++          <div className="bg-card border border-border rounded-lg p-5 shadow-sm">
++            <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground mb-3">Prévia do painel</p>
++            <div className="bg-credit-subtle border border-border rounded-lg p-5 mb-3">
++              <p className="text-xs font-semibold uppercase tracking-widest text-muted-foreground">Lucro do mês</p>
++              <p className="mt-1 text-3xl font-bold tabular-nums text-credit tracking-tight">R$ 18.420</p>
++              <div className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-credit">
++                <TrendUp size={14} /> 12% vs mês anterior
++              </div>
++            </div>
++            <div className="space-y-2">
++              <div className="border border-border bg-debit-subtle rounded-lg p-3 flex items-start gap-2 border-l-4" style={{ borderLeftColor: "hsl(var(--debit))" }}>
++                <WarningOctagon size={18} weight="fill" className="text-debit shrink-0 mt-0.5" />
++                <div>
++                  <p className="text-sm font-semibold">Queda de 18% nas vendas</p>
++                  <p className="text-xs text-muted-foreground">Categoria "Bebidas" — comparado à última semana</p>
++                </div>
++              </div>
++              <div className="border border-border bg-credit-subtle rounded-lg p-3 flex items-start gap-2 border-l-4" style={{ borderLeftColor: "hsl(var(--credit))" }}>
++                <CheckCircle size={18} weight="fill" className="text-credit shrink-0 mt-0.5" />
++                <div>
++                  <p className="text-sm font-semibold">Contas a pagar em dia</p>
++                  <p className="text-xs text-muted-foreground">Nenhum vencimento nos próximos 7 dias</p>
++                </div>
++              </div>
++            </div>
++          </div>
++        </section>
++
++        {/* Visão do produto */}
++        <section className="px-4 md:px-8 py-14 border-t border-border bg-card">
++          <div className="max-w-3xl mx-auto text-center">
++            <h2 className="font-heading text-2xl md:text-3xl font-bold tracking-tight">Não é só mais um ERP.</h2>
++            <p className="text-base text-muted-foreground mt-4">
++              É um assistente executivo que administra a empresa junto com você: a IA conversa, interpreta os dados, alerta e sugere ações. Você não precisa procurar os problemas — ela os encontra primeiro.
++            </p>
++          </div>
++        </section>
++
++        {/* Features */}
++        <section className="px-4 md:px-8 py-16 max-w-6xl mx-auto">
++          <h2 className="font-heading text-2xl font-bold tracking-tight text-center mb-10">O que o Sócio Digital faz por você</h2>
++          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
++            {FEATURES.map(({ icon: Icon, title, text }) => (
++              <div key={title} className="bg-card border border-border rounded-lg p-6" data-testid="landing-feature-card">
++                <div className="w-10 h-10 rounded-md bg-primary/10 flex items-center justify-center mb-4">
++                  <Icon size={20} weight="duotone" className="text-primary" />
++                </div>
++                <p className="font-semibold text-sm">{title}</p>
++                <p className="text-sm text-muted-foreground mt-1.5">{text}</p>
++              </div>
++            ))}
++          </div>
++        </section>
++
++        {/* Dores x soluções */}
++        <section className="px-4 md:px-8 py-16 border-t border-border bg-card">
++          <div className="max-w-4xl mx-auto">
++            <h2 className="font-heading text-2xl font-bold tracking-tight text-center">Problemas do dia a dia, resolvidos</h2>
++            <p className="text-sm text-muted-foreground text-center mt-2 mb-8">Mapeamos as dores reais de quem administra uma PME. Para cada uma, uma solução do Sócio Digital.</p>
++            <Tabs value={dorTab} onValueChange={setDorTab}>
++              <TabsList className="flex-wrap h-auto w-full justify-center gap-1 bg-transparent p-0">
++                {DORES_GRUPOS.map((g) => (
++                  <TabsTrigger
++                    key={g.value}
++                    value={g.value}
++                    data-testid={`landing-dor-tab-${g.value}`}
++                    className="bg-muted data-[state=active]:bg-primary data-[state=active]:text-primary-foreground"
++                  >
++                    {g.label}
++                  </TabsTrigger>
++                ))}
++              </TabsList>
++              {DORES_GRUPOS.map((g) => (
++                <TabsContent key={g.value} value={g.value} className="mt-6">
++                  <div className="grid sm:grid-cols-2 gap-3">
++                    {g.itens.map((d) => (
++                      <div key={d.problema} className="flex items-start gap-3 bg-background border border-border rounded-lg p-4" data-testid="landing-dor-item">
++                        <div className="flex-1 min-w-0">
++                          <p className="text-sm text-muted-foreground line-through decoration-1">{d.problema}</p>
++                          <p className="text-sm font-medium mt-1 flex items-center gap-1.5">
++                            <CheckCircle size={15} weight="fill" className="text-credit shrink-0" /> {d.solucao}
++                          </p>
++                        </div>
++                      </div>
++                    ))}
++                  </div>
++                </TabsContent>
++              ))}
++            </Tabs>
++          </div>
++        </section>
++
++        {/* CTA final */}
++        <section className="px-4 md:px-8 py-20 text-center">
++          <h2 className="font-heading text-2xl md:text-3xl font-bold tracking-tight">Pronto pra ter um sócio que nunca tira folga?</h2>
++          <p className="text-base text-muted-foreground mt-3">Cadastre sua empresa e monte seu painel em minutos.</p>
++          <Button size="lg" className="mt-7" asChild data-testid="landing-cta-register">
++            <Link to="/register">
++              Criar conta grátis <ArrowRight size={18} />
++            </Link>
++          </Button>
++        </section>
++      </main>
++
++      <footer className="px-4 md:px-8 py-8 border-t border-border text-center text-xs text-muted-foreground">
++        Sócio Digital — assistente executivo de IA para pequenas e médias empresas.
++      </footer>
++    </div>
++  );
++}
+diff --git a/frontend/src/pages/LoginPage.jsx b/frontend/src/pages/LoginPage.jsx
+index 15cdea6..b0cb406 100644
+--- a/frontend/src/pages/LoginPage.jsx
++++ b/frontend/src/pages/LoginPage.jsx
+@@ -36,7 +36,7 @@ export default function LoginPage() {
+           </div>
+           <span className="font-heading font-extrabold text-xl tracking-tight">Sócio Digital</span>
+         </div>
+-        <div className="bg-card border border-border rounded-xl p-8">
++        <div className="bg-card border border-border rounded-lg p-8">
+           <h1 className="font-heading text-2xl font-bold tracking-tight">Entrar</h1>
+           <p className="text-sm text-muted-foreground mt-1">Acesse o painel executivo da sua empresa</p>
+           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
+diff --git a/frontend/src/pages/OnboardingPage.jsx b/frontend/src/pages/OnboardingPage.jsx
+index 23c8378..50d04cd 100644
+--- a/frontend/src/pages/OnboardingPage.jsx
++++ b/frontend/src/pages/OnboardingPage.jsx
+@@ -17,7 +17,7 @@ export default function OnboardingPage() {
+   return (
+     <div className="min-h-screen flex items-center justify-center bg-background px-4">
+       <div className="w-full max-w-lg text-center" data-testid="onboarding-page">
+-        <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-4">
++        <div className="w-14 h-14 rounded-lg bg-primary/10 flex items-center justify-center mx-auto mb-4">
+           <ChartLineUp size={28} className="text-primary" weight="duotone" />
+         </div>
+         <h1 className="font-heading text-2xl font-bold tracking-tight">Vamos conhecer a {company?.name || "sua empresa"}</h1>
+diff --git a/frontend/src/pages/RegisterPage.jsx b/frontend/src/pages/RegisterPage.jsx
+index d9666ae..de90a21 100644
+--- a/frontend/src/pages/RegisterPage.jsx
++++ b/frontend/src/pages/RegisterPage.jsx
+@@ -35,7 +35,7 @@ export default function RegisterPage() {
+           </div>
+           <span className="font-heading font-extrabold text-xl tracking-tight">Sócio Digital</span>
+         </div>
+-        <div className="bg-card border border-border rounded-xl p-8">
++        <div className="bg-card border border-border rounded-lg p-8">
+           <h1 className="font-heading text-2xl font-bold tracking-tight">Criar conta</h1>
+           <p className="text-sm text-muted-foreground mt-1">Cadastre sua empresa e comece a usar seu Sócio Digital</p>
+           <form onSubmit={handleSubmit} className="mt-6 space-y-4">
