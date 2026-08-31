@@ -25,8 +25,21 @@ app = FastAPI(title="Sócio Digital — backend reconstruído")
 
 APP_ENV = os.environ.get("APP_ENV", "development").lower()
 FRONTEND_URL = os.environ.get("FRONTEND_URL", "").strip().rstrip("/")
+
+# A Render injeta RENDER_EXTERNAL_URL com o endereço público do serviço.
+# Antes, um deploy sem FRONTEND_URL configurada manualmente levantava
+# RuntimeError na importação: o contêiner morria antes de servir o primeiro
+# byte e o visitante recebia a página de erro da hospedagem em vez do site.
+# Agora a URL pública é o padrão e a falta da variável não derruba nada.
+if not FRONTEND_URL:
+    FRONTEND_URL = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
 if APP_ENV == "production" and not FRONTEND_URL:
-    raise RuntimeError("FRONTEND_URL precisa ser configurada em produção")
+    print(
+        "[aviso] FRONTEND_URL e RENDER_EXTERNAL_URL ausentes: CORS ficará "
+        "restrito à mesma origem. O site continua no ar.",
+        flush=True,
+    )
+
 if FRONTEND_URL:
     app.add_middleware(
         CORSMiddleware,
@@ -1210,10 +1223,34 @@ except ImportError:  # execução com o diretório backend/ na raiz
 
 app.include_router(_build_erp_router(db, auth_user, nowiso))
 
-# Static frontend
-app.mount("/static", StaticFiles(directory=FRONTEND/"static"), name="static")
 
-@app.get("/{full_path:path}")
-def spa(full_path:str):
-    # React Router fallback
-    return FileResponse(FRONTEND/"index.html")
+# ---- Frontend estático + fallback da SPA ----
+# O health check tem rota própria. Antes ele apontava para "/", que cai no
+# catch-all da SPA: qualquer problema no index.html marcava o serviço inteiro
+# como não saudável e a hospedagem passava a exibir a página dela.
+@app.get("/healthz", include_in_schema=False)
+def healthz():
+    return {"status": "ok", "env": APP_ENV}
+
+
+STATIC_DIR = FRONTEND / "static"
+STATIC_DIR.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+
+INDEX = FRONTEND / "index.html"
+
+
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa(full_path: str):
+    """Fallback do React Router: qualquer rota devolve o index da SPA.
+
+    O index vai com no-store para o navegador nunca reaproveitar um HTML antigo
+    apontando para um bundle que já não existe (os chunks levam hash no nome).
+    """
+    if not INDEX.exists():
+        raise HTTPException(500, "Frontend não compilado: rode 'npm run build' em frontend/")
+    return FileResponse(
+        INDEX,
+        media_type="text/html",
+        headers={"Cache-Control": "no-store, must-revalidate"},
+    )

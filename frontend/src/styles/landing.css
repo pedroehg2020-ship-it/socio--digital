@@ -1,0 +1,921 @@
+/* ==========================================================================
+   Sócio Digital — página pública (landing)
+
+   Identidade em duas cores:
+     principal  → verde da marca  (CTAs, destaques, ícones ativos)
+     secundária → azul de apoio   (segundo plano de gráficos e detalhes)
+   Todo o resto é neutro: tinta (quase preto azulado), cinzas e branco.
+
+   Nenhuma funcionalidade tem cor própria — era isso que poluía a versão
+   anterior, com doze cartões de doze cores diferentes.
+   ========================================================================== */
+
+.lp-root {
+  /* --------------------------------------------------------------- tokens */
+  --marca: #10b981;
+  --marca-forte: #059669;
+  --marca-clara: #34d399;
+  --marca-fraca: rgba(16, 185, 129, 0.12);
+
+  --apoio: #3b82f6;
+  --apoio-forte: #2563eb;
+  --apoio-fraca: rgba(59, 130, 246, 0.1);
+
+  --tinta: #070e22;
+  --tinta-2: #0d1733;
+  --tinta-3: #16224a;
+
+  --papel: #ffffff;
+  --papel-2: #f5f8fd;
+  --linha: #e3e9f4;
+  --linha-forte: #cfd9ea;
+
+  --texto: #0f172a;
+  --texto-2: #4a5568;
+  --texto-3: #7b8798;
+  --texto-claro: #c3d0e8;
+  --texto-claro-2: #93a3c4;
+
+  --r-sm: 10px;
+  --r: 16px;
+  --r-lg: 24px;
+
+  --sombra-1: 0 1px 2px rgba(9, 18, 40, 0.05);
+  --sombra-2: 0 10px 30px -14px rgba(9, 18, 40, 0.28);
+  --sombra-3: 0 28px 60px -30px rgba(9, 18, 40, 0.42);
+
+  position: relative;
+  background: var(--papel);
+  color: var(--texto);
+  overflow-x: hidden;
+}
+
+/* ------------------------------------------------------- palco 3D único */
+
+/* Canvas fixo do tamanho da janela. Fica acima dos fundos das seções (para a
+   cena não ser encoberta) mas não intercepta clique nenhum. As composições são
+   encaixadas dentro dos slots, então não passam por cima de texto. */
+.lp-palco {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+}
+.lp-palco canvas {
+  display: block;
+  pointer-events: none;
+}
+
+/* ----------------------------------------------------------- slots 3D */
+
+.lp-slot {
+  position: relative;
+  display: block;
+  width: 100%;
+  border-radius: var(--r-lg);
+}
+.lp-slot-alta { min-height: 440px; }
+.lp-slot-media { min-height: 380px; }
+.lp-slot-baixa { min-height: 210px; }
+
+/* Halo de profundidade atrás da cena — dá contexto de luz ao objeto 3D. */
+.lp-slot-halo {
+  position: absolute;
+  inset: 8%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 50% 45%,
+    var(--marca-fraca) 0%,
+    var(--apoio-fraca) 42%,
+    transparent 70%
+  );
+  filter: blur(6px);
+  pointer-events: none;
+}
+
+/* Fallback em CSS: só aparece quando não há WebGL. Mantém a sensação de
+   profundidade com três camadas empilhadas em perspectiva. */
+.lp-slot-css { display: none; }
+.lp-root.sem-3d .lp-slot-css {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  perspective: 900px;
+}
+.lp-slot-css > span {
+  position: absolute;
+  border-radius: var(--r);
+  transform-style: preserve-3d;
+}
+.lp-slot-css-tras {
+  width: 58%;
+  height: 44%;
+  background: linear-gradient(140deg, var(--tinta-3), var(--tinta-2));
+  transform: translate3d(-16%, -14%, -60px) rotateX(12deg) rotateY(-16deg);
+  opacity: 0.6;
+}
+.lp-slot-css-meio {
+  width: 62%;
+  height: 46%;
+  background: linear-gradient(140deg, var(--apoio-forte), var(--apoio));
+  transform: translate3d(12%, 10%, -30px) rotateX(10deg) rotateY(-14deg);
+  opacity: 0.55;
+}
+.lp-slot-css-frente {
+  width: 46%;
+  height: 46%;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(140deg, var(--marca-forte), var(--marca));
+  box-shadow: var(--sombra-3);
+  transform: rotateX(8deg) rotateY(-12deg);
+}
+
+/* ------------------------------------------------------------- estrutura */
+
+.lp-wrap {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 0 28px;
+  width: 100%;
+}
+.lp-wrap-estreito { max-width: 820px; }
+
+.lp-secao {
+  position: relative;
+  z-index: 1;
+  padding: 96px 0;
+}
+.lp-secao.fundo-claro { background: var(--papel); }
+.lp-secao.fundo-neutro { background: var(--papel-2); }
+.lp-secao.fundo-tinta {
+  background:
+    radial-gradient(680px 340px at 80% 12%, rgba(16, 185, 129, 0.16), transparent 62%),
+    radial-gradient(620px 320px at 12% 88%, rgba(59, 130, 246, 0.15), transparent 64%),
+    linear-gradient(158deg, var(--tinta) 0%, var(--tinta-2) 58%, var(--tinta-3) 100%);
+  color: #fff;
+}
+
+/* ----------------------------------------------------------- tipografia */
+
+.lp-root h1,
+.lp-root h2,
+.lp-root h3 {
+  font-family: "Outfit", "IBM Plex Sans", sans-serif;
+  letter-spacing: -0.024em;
+  margin: 0;
+}
+
+.lp-sobretitulo {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--marca-forte);
+  margin-bottom: 14px;
+}
+.fundo-tinta .lp-sobretitulo { color: var(--marca-clara); }
+
+.lp-h2 {
+  font-size: clamp(27px, 3.1vw, 39px);
+  line-height: 1.14;
+  max-width: 22ch;
+}
+.lp-cabecalho.centro .lp-h2 { max-width: 24ch; }
+
+.lp-frase {
+  font-size: 17.5px;
+  line-height: 1.5;
+  color: var(--marca-forte);
+  font-weight: 600;
+  margin: 16px 0 0;
+  max-width: 34ch;
+}
+.fundo-tinta .lp-frase { color: var(--marca-clara); }
+
+.lp-texto {
+  font-size: 15.8px;
+  line-height: 1.68;
+  color: var(--texto-2);
+  margin: 14px 0 0;
+  max-width: 52ch;
+}
+.fundo-tinta .lp-texto { color: var(--texto-claro); }
+
+.lp-sub {
+  font-size: 16px;
+  line-height: 1.66;
+  color: var(--texto-2);
+  margin: 16px 0 0;
+  max-width: 62ch;
+}
+.fundo-tinta .lp-sub { color: var(--texto-claro); }
+
+.lp-cabecalho { margin-bottom: 46px; }
+.lp-cabecalho.centro {
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+/* --------------------------------------------------------------- botões */
+
+.lp-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  padding: 11px 20px;
+  font-size: 14.5px;
+  font-weight: 600;
+  font-family: "Outfit", "IBM Plex Sans", sans-serif;
+  cursor: pointer;
+  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease,
+    border-color 0.18s ease, color 0.18s ease;
+  white-space: nowrap;
+}
+.lp-btn:active { transform: translateY(1px); }
+.lp-btn-sm { padding: 8px 15px; font-size: 13.5px; border-radius: 10px; }
+.lp-btn-lg { padding: 14px 26px; font-size: 15.5px; }
+.lp-btn-bloco { width: 100%; }
+
+.lp-btn-principal {
+  background: linear-gradient(135deg, var(--marca-forte), var(--marca));
+  color: #fff;
+  box-shadow: 0 10px 24px -12px rgba(5, 150, 105, 0.85);
+}
+.lp-btn-principal:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 32px -14px rgba(5, 150, 105, 0.95);
+}
+
+.lp-btn-vidro {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.26);
+  color: #fff;
+  backdrop-filter: blur(8px);
+}
+.lp-btn-vidro:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.42);
+  transform: translateY(-2px);
+}
+
+.lp-btn-texto { color: inherit; padding: 8px 12px; }
+.lp-btn-texto:hover { color: var(--marca-clara); }
+
+.lp-botoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 28px;
+}
+
+.lp-link-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 26px;
+  font-size: 14.5px;
+  font-weight: 600;
+  color: var(--marca-forte);
+  border-bottom: 1px solid transparent;
+  transition: border-color 0.18s ease, gap 0.18s ease;
+}
+.lp-link-cta:hover { border-color: var(--marca); gap: 11px; }
+
+/* ------------------------------------------------------------ cabeçalho */
+
+.lp-topo {
+  position: sticky;
+  top: 0;
+  z-index: 60;
+  transition: background 0.25s ease, border-color 0.25s ease, backdrop-filter 0.25s ease;
+  border-bottom: 1px solid transparent;
+  color: #fff;
+}
+.lp-topo.rolado {
+  background: rgba(7, 14, 34, 0.86);
+  backdrop-filter: blur(14px);
+  border-bottom-color: rgba(255, 255, 255, 0.09);
+}
+.lp-topo-inner {
+  max-width: 1180px;
+  margin: 0 auto;
+  padding: 14px 28px;
+  display: flex;
+  align-items: center;
+  gap: 20px;
+}
+
+.lp-marca {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  font-family: "Outfit", sans-serif;
+  font-size: 15.5px;
+}
+.lp-marca-selo {
+  width: 33px;
+  height: 33px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--marca), var(--apoio));
+  display: grid;
+  place-items: center;
+  color: #04122a;
+  font-weight: 700;
+  font-size: 13px;
+  font-family: "Outfit", sans-serif;
+  flex-shrink: 0;
+}
+
+.lp-menu {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+}
+.lp-menu a {
+  padding: 8px 13px;
+  border-radius: 9px;
+  font-size: 14px;
+  color: var(--texto-claro);
+  transition: color 0.18s ease, background 0.18s ease;
+}
+.lp-menu a:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+
+.lp-topo-acoes { display: flex; align-items: center; gap: 8px; }
+
+.lp-topo-hamburguer {
+  display: none;
+  margin-left: auto;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  color: #fff;
+  border-radius: 10px;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.lp-menu-mobile {
+  position: relative;
+  z-index: 70;
+  background: rgba(7, 14, 34, 0.97);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 12px 22px 22px;
+  display: flex;
+  flex-direction: column;
+}
+.lp-menu-mobile a {
+  padding: 13px 4px;
+  font-size: 15.5px;
+  color: var(--texto-claro);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+.lp-menu-mobile-acoes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+/* ------------------------------------------------------------------ hero */
+
+.lp-hero {
+  position: relative;
+  z-index: 1;
+  margin-top: -71px;
+  padding: 148px 0 84px;
+  background:
+    radial-gradient(760px 400px at 78% 6%, rgba(16, 185, 129, 0.2), transparent 60%),
+    radial-gradient(700px 380px at 8% 4%, rgba(59, 130, 246, 0.2), transparent 62%),
+    linear-gradient(165deg, var(--tinta) 0%, var(--tinta-2) 56%, var(--tinta-3) 100%);
+  color: #fff;
+  overflow: hidden;
+}
+
+.lp-hero-grade {
+  display: grid;
+  grid-template-columns: 1.03fr 0.97fr;
+  gap: 40px;
+  align-items: center;
+}
+
+.lp-hero h1 {
+  font-size: clamp(32px, 4.4vw, 54px);
+  line-height: 1.06;
+  max-width: 16ch;
+}
+.lp-hero h1 em {
+  font-style: normal;
+  background: linear-gradient(100deg, var(--marca-clara), var(--apoio));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+.lp-lead {
+  font-size: 17px;
+  line-height: 1.62;
+  color: var(--texto-claro);
+  max-width: 46ch;
+  margin: 20px 0 0;
+}
+
+.lp-selo {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 15px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  font-size: 12.5px;
+  color: var(--marca-clara);
+  backdrop-filter: blur(8px);
+}
+
+.lp-confianca {
+  list-style: none;
+  padding: 0;
+  margin: 26px 0 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+}
+.lp-confianca li {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13.2px;
+  color: var(--texto-claro-2);
+}
+.lp-confianca svg { color: var(--marca-clara); }
+
+.lp-indicadores {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-top: 58px;
+}
+.lp-indicador {
+  background: rgba(255, 255, 255, 0.055);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--r);
+  padding: 17px 18px;
+  backdrop-filter: blur(8px);
+}
+.lp-indicador b {
+  display: block;
+  font-size: 25px;
+  font-family: "Outfit", sans-serif;
+  color: #fff;
+}
+.lp-indicador span { font-size: 12.3px; color: var(--texto-claro-2); }
+
+.lp-dica-rolagem {
+  position: absolute;
+  left: 50%;
+  bottom: 22px;
+  transform: translateX(-50%);
+  z-index: 2;
+}
+.lp-dica-rolagem i {
+  display: block;
+  width: 22px;
+  height: 34px;
+  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  border-radius: 12px;
+  position: relative;
+}
+.lp-dica-rolagem i::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 7px;
+  width: 3px;
+  height: 7px;
+  margin-left: -1.5px;
+  border-radius: 2px;
+  background: var(--marca-clara);
+  animation: lp-rolar 1.8s ease-in-out infinite;
+}
+@keyframes lp-rolar {
+  0% { transform: translateY(0); opacity: 1; }
+  70% { transform: translateY(11px); opacity: 0; }
+  100% { transform: translateY(0); opacity: 0; }
+}
+
+/* ------------------------------------------------------------- pilares */
+
+.lp-pilares {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+.lp-pilar {
+  height: 100%;
+  background: var(--papel-2);
+  border: 1px solid var(--linha);
+  border-radius: var(--r);
+  padding: 26px 24px;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+.lp-pilar:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--sombra-2);
+  border-color: var(--linha-forte);
+}
+.lp-pilar-icone {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  display: grid;
+  place-items: center;
+  color: #fff;
+  background: linear-gradient(135deg, var(--marca-forte), var(--marca));
+  margin-bottom: 16px;
+}
+.lp-pilar h3 { font-size: 17px; margin-bottom: 8px; }
+.lp-pilar p { margin: 0; font-size: 14.4px; line-height: 1.62; color: var(--texto-2); }
+
+/* --------------------------------------------------- seção de recurso */
+
+.lp-feature-grade {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 56px;
+  align-items: center;
+}
+.lp-feature-grade.invertida .lp-feature-texto { order: 2; }
+.lp-feature-grade.invertida .lp-feature-visual { order: 1; }
+
+.lp-feature-visual { width: 100%; }
+
+.lp-beneficios {
+  list-style: none;
+  padding: 0;
+  margin: 26px 0 0;
+  display: grid;
+  gap: 11px;
+}
+.lp-beneficios li {
+  display: flex;
+  align-items: flex-start;
+  gap: 11px;
+  font-size: 14.6px;
+  line-height: 1.5;
+  color: var(--texto);
+}
+.lp-beneficios svg {
+  color: var(--marca-forte);
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+.fundo-tinta .lp-beneficios li { color: var(--texto-claro); }
+.fundo-tinta .lp-beneficios svg { color: var(--marca-clara); }
+
+/* --------------------------------------------------------------- passos */
+
+.lp-passos {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+.lp-passo {
+  height: 100%;
+  position: relative;
+  background: var(--papel-2);
+  border: 1px solid var(--linha);
+  border-radius: var(--r);
+  padding: 28px 24px;
+  transition: transform 0.22s ease, box-shadow 0.22s ease;
+}
+.lp-passo:hover { transform: translateY(-4px); box-shadow: var(--sombra-2); }
+.lp-passo-num {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, var(--marca-forte), var(--marca));
+  color: #fff;
+  font-family: "Outfit", sans-serif;
+  font-weight: 700;
+  font-size: 16px;
+  margin-bottom: 16px;
+}
+.lp-passo h3 { font-size: 17px; margin-bottom: 8px; }
+.lp-passo p { margin: 0; font-size: 14.4px; line-height: 1.62; color: var(--texto-2); }
+
+/* ---------------------------------------------------------- benefícios */
+
+.lp-beneficios-grade {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
+.lp-beneficios-grade > .revelar { height: 100%; }
+
+.lp-beneficio {
+  height: 100%;
+  background: var(--papel);
+  border: 1px solid var(--linha);
+  border-radius: var(--r);
+  padding: 24px 22px;
+  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+}
+.lp-beneficio:hover {
+  transform: translateY(-4px);
+  box-shadow: var(--sombra-2);
+  border-color: var(--linha-forte);
+}
+.lp-beneficio-icone {
+  width: 38px;
+  height: 38px;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  color: var(--marca-forte);
+  background: var(--marca-fraca);
+  margin-bottom: 14px;
+}
+.lp-beneficio h3 { font-size: 16px; margin-bottom: 7px; }
+.lp-beneficio p { margin: 0; font-size: 14.2px; line-height: 1.6; color: var(--texto-2); }
+
+/* ------------------------------------------------------------ para quem */
+
+.lp-publicos {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+}
+.lp-publicos > .revelar { height: 100%; }
+
+.lp-publico {
+  height: 100%;
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--papel-2);
+  border: 1px solid var(--linha);
+  border-radius: var(--r);
+  padding: 20px;
+  transition: transform 0.22s ease, border-color 0.22s ease;
+}
+.lp-publico:hover { transform: translateY(-3px); border-color: var(--linha-forte); }
+.lp-publico-icone {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--apoio-forte);
+  background: var(--apoio-fraca);
+}
+.lp-publico h3 { font-size: 15.4px; margin-bottom: 5px; }
+.lp-publico p { margin: 0; font-size: 13.8px; line-height: 1.58; color: var(--texto-2); }
+
+/* ------------------------------------------------------------ segurança */
+
+.lp-seguranca-lista { display: grid; gap: 14px; margin-top: 28px; }
+.lp-seguranca-item {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--papel);
+  border: 1px solid var(--linha);
+  border-radius: var(--r);
+  padding: 18px 20px;
+}
+.lp-seguranca-item > span {
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+  color: var(--marca-forte);
+  background: var(--marca-fraca);
+}
+.lp-seguranca-item h3 { font-size: 15.4px; margin-bottom: 5px; }
+.lp-seguranca-item p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--texto-2); }
+
+/* ------------------------------------------------------------------ FAQ */
+
+.lp-faq { display: grid; gap: 10px; }
+.lp-faq-item {
+  background: var(--papel-2);
+  border: 1px solid var(--linha);
+  border-radius: var(--r);
+  overflow: hidden;
+  transition: border-color 0.22s ease, box-shadow 0.22s ease;
+}
+.lp-faq-item.aberto {
+  border-color: rgba(16, 185, 129, 0.4);
+  box-shadow: var(--sombra-2);
+}
+.lp-faq-pergunta {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 19px 22px;
+  background: none;
+  border: 0;
+  cursor: pointer;
+  text-align: left;
+  font-family: "Outfit", "IBM Plex Sans", sans-serif;
+  font-size: 15.6px;
+  font-weight: 600;
+  color: var(--texto);
+}
+.lp-faq-pergunta svg { color: var(--marca-forte); flex-shrink: 0; }
+.lp-faq-resposta {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.32s cubic-bezier(0.22, 0.75, 0.3, 1);
+}
+.lp-faq-item.aberto .lp-faq-resposta { grid-template-rows: 1fr; }
+.lp-faq-resposta > p {
+  overflow: hidden;
+  margin: 0;
+  padding: 0 22px;
+  font-size: 14.8px;
+  line-height: 1.68;
+  color: var(--texto-2);
+}
+.lp-faq-item.aberto .lp-faq-resposta > p { padding-bottom: 21px; }
+
+/* ------------------------------------------------------------ CTA final */
+
+.lp-cta-secao { padding: 84px 0; }
+.lp-cta {
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 34px;
+  align-items: center;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: var(--r-lg);
+  padding: 46px 44px;
+  backdrop-filter: blur(10px);
+}
+.lp-cta h2 {
+  font-size: clamp(25px, 3vw, 35px);
+  line-height: 1.16;
+  max-width: 20ch;
+}
+.lp-cta p {
+  margin: 16px 0 0;
+  font-size: 15.6px;
+  line-height: 1.65;
+  color: var(--texto-claro);
+  max-width: 52ch;
+}
+.lp-cta-rodape {
+  display: block;
+  margin-top: 16px;
+  font-size: 12.8px;
+  color: var(--texto-claro-2);
+}
+.lp-cta-visual { min-height: 190px; }
+
+/* ---------------------------------------------------------------- rodapé */
+
+.lp-rodape {
+  position: relative;
+  z-index: 1;
+  background: var(--tinta);
+  color: var(--texto-claro-2);
+  padding: 58px 0 26px;
+}
+.lp-rodape-grade {
+  display: grid;
+  grid-template-columns: 1.6fr repeat(4, 1fr);
+  gap: 34px;
+}
+.lp-rodape-marca { display: flex; flex-direction: column; gap: 10px; }
+.lp-rodape-marca b { color: #fff; font-family: "Outfit", sans-serif; font-size: 15.5px; }
+.lp-rodape-marca p {
+  margin: 4px 0 0;
+  font-size: 13.4px;
+  line-height: 1.62;
+  max-width: 34ch;
+}
+.lp-rodape h3 {
+  font-size: 12px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: #fff;
+  margin-bottom: 14px;
+}
+.lp-rodape ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 9px; }
+.lp-rodape a { font-size: 13.6px; transition: color 0.18s ease; }
+.lp-rodape a:hover { color: var(--marca-clara); }
+.lp-rodape-base {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 42px;
+  padding-top: 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  font-size: 12.6px;
+}
+
+/* -------------------------------------------------- revelação por scroll */
+
+.lp-root .revelar {
+  opacity: 0;
+  transition: opacity 0.66s cubic-bezier(0.22, 0.75, 0.3, 1),
+    transform 0.66s cubic-bezier(0.22, 0.75, 0.3, 1);
+  will-change: opacity, transform;
+}
+.lp-root .revelar-sobe { transform: translate3d(0, 30px, 0); }
+.lp-root .revelar-escala { transform: scale(0.95) translate3d(0, 16px, 0); }
+.lp-root .revelar-fade { transform: none; }
+.lp-root .revelar.visivel { opacity: 1; transform: none; }
+
+/* ------------------------------------------------------------ responsivo */
+
+@media (max-width: 1080px) {
+  .lp-menu { display: none; }
+  .lp-topo-acoes { display: none; }
+  .lp-topo-hamburguer { display: inline-grid; place-items: center; }
+
+  .lp-hero-grade { grid-template-columns: 1fr; gap: 24px; }
+  .lp-hero-texto { order: 2; }
+  .lp-hero-visual { order: 1; }
+  .lp-hero h1, .lp-lead { max-width: none; }
+
+  .lp-feature-grade { grid-template-columns: 1fr; gap: 26px; }
+  /* No mobile o visual sempre vem antes do texto: a alternância de lados
+     não existe em coluna única e inverter a ordem só confundiria a leitura. */
+  .lp-feature-grade .lp-feature-texto,
+  .lp-feature-grade.invertida .lp-feature-texto { order: 2; }
+  .lp-feature-grade .lp-feature-visual,
+  .lp-feature-grade.invertida .lp-feature-visual { order: 1; }
+
+  .lp-pilares,
+  .lp-passos,
+  .lp-beneficios-grade,
+  .lp-publicos { grid-template-columns: repeat(2, 1fr); }
+
+  .lp-cta { grid-template-columns: 1fr; }
+  .lp-cta-visual { display: none; }
+
+  .lp-rodape-grade { grid-template-columns: 1fr 1fr 1fr; }
+  .lp-rodape-marca { grid-column: 1 / -1; }
+}
+
+@media (max-width: 720px) {
+  .lp-wrap { padding: 0 18px; }
+  .lp-topo-inner { padding: 12px 18px; }
+  .lp-secao { padding: 62px 0; }
+  .lp-hero { padding: 118px 0 62px; }
+
+  /* Cenas 3D menores no celular: continuam presentes, mas ocupam menos tela
+     e exigem menos do GPU. */
+  .lp-slot-alta { min-height: 280px; }
+  .lp-slot-media { min-height: 248px; }
+  .lp-slot-baixa { min-height: 170px; }
+
+  .lp-indicadores { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 36px; }
+  .lp-indicador { padding: 14px; }
+  .lp-indicador b { font-size: 21px; }
+
+  .lp-pilares,
+  .lp-passos,
+  .lp-beneficios-grade,
+  .lp-publicos { grid-template-columns: 1fr; }
+
+  .lp-botoes .lp-btn { flex: 1 1 100%; }
+  .lp-cta { padding: 32px 22px; }
+  .lp-dica-rolagem { display: none; }
+
+  .lp-rodape-grade { grid-template-columns: 1fr 1fr; }
+  .lp-rodape { padding: 44px 0 22px; }
+}
+
+/* --------------------------------------------------- movimento reduzido */
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-root .revelar { opacity: 1; transform: none; transition: none; }
+  .lp-dica-rolagem i::after { animation: none; }
+  .lp-btn:hover,
+  .lp-pilar:hover,
+  .lp-passo:hover,
+  .lp-beneficio:hover,
+  .lp-publico:hover { transform: none; }
+  .lp-faq-resposta { transition: none; }
+}

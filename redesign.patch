@@ -1,0 +1,4307 @@
+diff --git a/Dockerfile b/Dockerfile
+index 6cc7c7a..c711d39 100644
+--- a/Dockerfile
++++ b/Dockerfile
+@@ -1,6 +1,43 @@
++# ---------------------------------------------------------------------------
++# Etapa 1 — build do frontend
++#
++# Antes esta etapa não existia: a imagem copiava o bundle que estivesse
++# comitado em frontend/static/js. Bastava esquecer de rodar `npm run build`
++# antes do commit para o site publicado ficar servindo uma versão antiga do
++# React. Agora o bundle é sempre gerado a partir do código-fonte no deploy.
++# ---------------------------------------------------------------------------
++FROM node:20-slim AS frontend
++
++WORKDIR /build
++COPY frontend/package.json frontend/package-lock.json ./
++RUN npm ci --no-audit --no-fund
++
++COPY frontend/ ./
++RUN npm run build
++
++# ---------------------------------------------------------------------------
++# Etapa 2 — runtime Python
++# ---------------------------------------------------------------------------
+ FROM python:3.12-slim
++
++ENV PYTHONUNBUFFERED=1 \
++    PYTHONDONTWRITEBYTECODE=1 \
++    PORT=8000
++
+ WORKDIR /app
+-COPY . /app
++
++COPY backend/requirements.txt ./backend/requirements.txt
+ RUN pip install --no-cache-dir -r backend/requirements.txt
++
++COPY . /app
++
++# O bundle recém-compilado substitui o que veio do repositório.
++COPY --from=frontend /build/static /app/frontend/static
++
+ EXPOSE 8000
+-CMD ["python","-m","uvicorn","backend.app:app","--host","0.0.0.0","--port","8000"]
++
++# A Render injeta a variável PORT. A versão anterior fixava 8000 no comando e
++# ignorava esse valor — se a plataforma escolher outra porta, o serviço sobe
++# mas fica inalcançável, e o visitante vê a página de erro da hospedagem em
++# vez do site.
++CMD ["sh", "-c", "python -m uvicorn backend.app:app --host 0.0.0.0 --port ${PORT:-8000}"]
+diff --git a/backend/app.py b/backend/app.py
+index 81e1a0c..b991edd 100644
+--- a/backend/app.py
++++ b/backend/app.py
+@@ -25,8 +25,21 @@ app = FastAPI(title="Sócio Digital — backend reconstruído")
+ 
+ APP_ENV = os.environ.get("APP_ENV", "development").lower()
+ FRONTEND_URL = os.environ.get("FRONTEND_URL", "").strip().rstrip("/")
++
++# A Render injeta RENDER_EXTERNAL_URL com o endereço público do serviço.
++# Antes, um deploy sem FRONTEND_URL configurada manualmente levantava
++# RuntimeError na importação: o contêiner morria antes de servir o primeiro
++# byte e o visitante recebia a página de erro da hospedagem em vez do site.
++# Agora a URL pública é o padrão e a falta da variável não derruba nada.
++if not FRONTEND_URL:
++    FRONTEND_URL = os.environ.get("RENDER_EXTERNAL_URL", "").strip().rstrip("/")
+ if APP_ENV == "production" and not FRONTEND_URL:
+-    raise RuntimeError("FRONTEND_URL precisa ser configurada em produção")
++    print(
++        "[aviso] FRONTEND_URL e RENDER_EXTERNAL_URL ausentes: CORS ficará "
++        "restrito à mesma origem. O site continua no ar.",
++        flush=True,
++    )
++
+ if FRONTEND_URL:
+     app.add_middleware(
+         CORSMiddleware,
+@@ -1210,10 +1223,34 @@ except ImportError:  # execução com o diretório backend/ na raiz
+ 
+ app.include_router(_build_erp_router(db, auth_user, nowiso))
+ 
+-# Static frontend
+-app.mount("/static", StaticFiles(directory=FRONTEND/"static"), name="static")
+ 
+-@app.get("/{full_path:path}")
+-def spa(full_path:str):
+-    # React Router fallback
+-    return FileResponse(FRONTEND/"index.html")
++# ---- Frontend estático + fallback da SPA ----
++# O health check tem rota própria. Antes ele apontava para "/", que cai no
++# catch-all da SPA: qualquer problema no index.html marcava o serviço inteiro
++# como não saudável e a hospedagem passava a exibir a página dela.
++@app.get("/healthz", include_in_schema=False)
++def healthz():
++    return {"status": "ok", "env": APP_ENV}
++
++
++STATIC_DIR = FRONTEND / "static"
++STATIC_DIR.mkdir(parents=True, exist_ok=True)
++app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
++
++INDEX = FRONTEND / "index.html"
++
++
++@app.get("/{full_path:path}", include_in_schema=False)
++def spa(full_path: str):
++    """Fallback do React Router: qualquer rota devolve o index da SPA.
++
++    O index vai com no-store para o navegador nunca reaproveitar um HTML antigo
++    apontando para um bundle que já não existe (os chunks levam hash no nome).
++    """
++    if not INDEX.exists():
++        raise HTTPException(500, "Frontend não compilado: rode 'npm run build' em frontend/")
++    return FileResponse(
++        INDEX,
++        media_type="text/html",
++        headers={"Cache-Control": "no-store, must-revalidate"},
++    )
+diff --git a/frontend/build.mjs b/frontend/build.mjs
+index 14e0e29..746bc6d 100644
+--- a/frontend/build.mjs
++++ b/frontend/build.mjs
+@@ -1,10 +1,21 @@
+ import * as esbuild from "esbuild";
++import fs from "node:fs";
+ import path from "node:path";
+ import { fileURLToPath } from "node:url";
+ 
+ const dir = path.dirname(fileURLToPath(import.meta.url));
+ const watch = process.argv.includes("--watch");
+ 
++/**
++ * Os nomes dos chunks levam hash. Sem limpar a pasta, cada build deixa para
++ * trás o chunk da versão anterior — arquivos mortos que continuam sendo
++ * publicados pelo backend e engordam o repositório.
++ */
++const saida = path.join(dir, "static/js");
++if (!watch && fs.existsSync(saida)) {
++  fs.rmSync(saida, { recursive: true, force: true });
++}
++
+ /**
+  * Gera os arquivos servidos por backend/app.py em /static/js/.
+  *
+diff --git a/frontend/public/index.html b/frontend/public/index.html
+index f11fcb8..a9d8553 100644
+--- a/frontend/public/index.html
++++ b/frontend/public/index.html
+@@ -1,113 +1,26 @@
+ <!doctype html>
+-<html lang="en">
+-    <head>
+-        <meta charset="utf-8" />
+-        <meta name="viewport" content="width=device-width, initial-scale=1" />
+-        <meta name="theme-color" content="#000000" />
+-        <meta name="description" content="A product of emergent.sh" />
+-        <link rel="preconnect" href="https://fonts.googleapis.com" />
+-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@600&display=swap" rel="stylesheet" />
+-        <!--
+-        manifest.json provides metadata used when your web app is installed on a
+-        user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
+-        -->
+-        <!--
+-        Notice the use of %PUBLIC_URL% in the tags above.
+-        It will be replaced with the URL of the `public` folder during the build.
+-        Only files inside the `public` folder can be referenced from the HTML.
++<html lang="pt-BR">
++  <head>
++    <meta charset="utf-8" />
++    <meta name="viewport" content="width=device-width, initial-scale=1" />
++    <meta name="theme-color" content="#070e22" />
++    <meta
++      name="description"
++      content="Sócio Digital — gestão com assistente executivo de IA para pequenas empresas: vendas, financeiro, estoque e clientes."
++    />
++    <link rel="icon" type="image/svg+xml" href="/static/favicon.svg" />
+ 
+-        Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
+-        work correctly both with client-side routing and a non-root public URL.
+-        Learn how to configure a non-root public URL by running `npm run build`.
+-        -->
+-        <title>Emergent | Fullstack App</title>
+-        <script>window.addEventListener("error",function(e){if(e.error instanceof DOMException&&e.error.name==="DataCloneError"&&e.message&&e.message.includes("PerformanceServerTiming")){e.stopImmediatePropagation();e.preventDefault()}},true);</script>
+-        <script src="https://assets.emergent.sh/scripts/emergent-main.js"></script>
+-    </head>
+-    <body>
+-        <noscript>You need to enable JavaScript to run this app.</noscript>
+-        <div id="root"></div>
+-        <!--
+-      This HTML file is a template.
+-      If you open it directly in the browser, you will see an empty page.
++    <link rel="preconnect" href="https://fonts.googleapis.com" />
++    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
++    <link
++      rel="stylesheet"
++      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
++    />
+ 
+-      You can add webfonts, meta tags, or analytics to this file.
+-      The build step will place the bundled scripts into the <body> tag.
+-
+-      To begin the development, run `npm start` or `yarn start`.
+-      To create a production bundle, use `npm run build` or `yarn build`.
+-    -->
+-        <script>
+-            !(function (t, e) {
+-                var o, n, p, r;
+-                e.__SV ||
+-                    ((window.posthog = e),
+-                    (e._i = []),
+-                    (e.init = function (i, s, a) {
+-                        function g(t, e) {
+-                            var o = e.split(".");
+-                            2 == o.length && ((t = t[o[0]]), (e = o[1])),
+-                                (t[e] = function () {
+-                                    t.push(
+-                                        [e].concat(
+-                                            Array.prototype.slice.call(
+-                                                arguments,
+-                                                0,
+-                                            ),
+-                                        ),
+-                                    );
+-                                });
+-                        }
+-                        ((p = t.createElement("script")).type =
+-                            "text/javascript"),
+-                            (p.crossOrigin = "anonymous"),
+-                            (p.async = !0),
+-                            (p.src =
+-                                s.api_host.replace(
+-                                    ".i.posthog.com",
+-                                    "-assets.i.posthog.com",
+-                                ) + "/static/array.js"),
+-                            (r =
+-                                t.getElementsByTagName(
+-                                    "script",
+-                                )[0]).parentNode.insertBefore(p, r);
+-                        var u = e;
+-                        for (
+-                            void 0 !== a ? (u = e[a] = []) : (a = "posthog"),
+-                                u.people = u.people || [],
+-                                u.toString = function (t) {
+-                                    var e = "posthog";
+-                                    return (
+-                                        "posthog" !== a && (e += "." + a),
+-                                        t || (e += " (stub)"),
+-                                        e
+-                                    );
+-                                },
+-                                u.people.toString = function () {
+-                                    return u.toString(1) + ".people (stub)";
+-                                },
+-                                o =
+-                                    "init me ws ys ps bs capture je Di ks register register_once register_for_session unregister unregister_for_session Ps getFeatureFlag getFeatureFlagPayload isFeatureEnabled reloadFeatureFlags updateEarlyAccessFeatureEnrollment getEarlyAccessFeatures on onFeatureFlags onSurveysLoaded onSessionId getSurveys getActiveMatchingSurveys renderSurvey canRenderSurvey canRenderSurveyAsync identify setPersonProperties group resetGroups setPersonPropertiesForFlags resetPersonPropertiesForFlags setGroupPropertiesForFlags resetGroupPropertiesForFlags reset get_distinct_id getGroups get_session_id get_session_replay_url alias set_config startSessionRecording stopSessionRecording sessionRecordingStarted captureException loadToolbar get_property getSessionProperty Es $s createPersonProfile Is opt_in_capturing opt_out_capturing has_opted_in_capturing has_opted_out_capturing clear_opt_in_out_capturing Ss debug xs getPageViewId captureTraceFeedback captureTraceMetric".split(
+-                                        " ",
+-                                    ),
+-                                n = 0;
+-                            n < o.length;
+-                            n++
+-                        )
+-                            g(u, o[n]);
+-                        e._i.push([i, s, a]);
+-                    }),
+-                    (e.__SV = 1));
+-            })(document, window.posthog || []);
+-            posthog.init("phc_DbsPb39SRc8z3EiQ6Dhj6ikv4H4rTKcht9d4sZSesceP", {
+-                api_host: "https://ap.emergent.sh",
+-                person_profiles: "identified_only", // or 'always' to create profiles for anonymous users as well,
+-                session_recording: {
+-                    recordCrossOriginIframes: true,
+-                    capturePerformance: false,
+-                },
+-            });
+-        </script>
+-    </body>
++    <title>Sócio Digital — gestão com assistente de IA</title>
++  </head>
++  <body>
++    <noscript>Este aplicativo precisa de JavaScript.</noscript>
++    <div id="root"></div>
++  </body>
+ </html>
+diff --git a/frontend/src/components/landing/Blocos.jsx b/frontend/src/components/landing/Blocos.jsx
+new file mode 100644
+index 0000000..33a10d5
+--- /dev/null
++++ b/frontend/src/components/landing/Blocos.jsx
+@@ -0,0 +1,224 @@
++/**
++ * Blocos reutilizáveis da página inicial.
++ *
++ * A landing inteira é montada com estes componentes — nenhuma seção repete
++ * marcação. Trocar o espaçamento, a tipografia ou o ritmo de animação aqui
++ * muda a página toda.
++ */
++
++import { useState } from "react";
++import { Link } from "react-router-dom";
++import Icon from "@/components/Icons";
++import Slot3D from "@/components/landing/Slot3D";
++import { useRevelar } from "@/lib/animacoes";
++
++/* -------------------------------------------------------- AnimatedSection */
++
++/** Revela o conteúdo quando ele entra na tela. Respeita movimento reduzido. */
++export function Revelar({ children, atraso = 0, variante = "sobe", className = "", tag: Tag = "div" }) {
++  const [ref, visivel] = useRevelar();
++  return (
++    <Tag
++      ref={ref}
++      className={`revelar revelar-${variante} ${visivel ? "visivel" : ""} ${className}`}
++      style={{ transitionDelay: `${atraso}ms` }}
++    >
++      {children}
++    </Tag>
++  );
++}
++
++/* ----------------------------------------------------------- SectionHeader */
++
++export function SectionHeader({ sobretitulo, titulo, texto, centralizado = false, claro = false }) {
++  return (
++    <Revelar className={`lp-cabecalho ${centralizado ? "centro" : ""} ${claro ? "claro" : ""}`}>
++      {sobretitulo ? <div className="lp-sobretitulo">{sobretitulo}</div> : null}
++      <h2 className="lp-h2">{titulo}</h2>
++      {texto ? <p className="lp-sub">{texto}</p> : null}
++    </Revelar>
++  );
++}
++
++/* ---------------------------------------------------------- FeatureSection */
++
++/**
++ * Seção completa de uma funcionalidade: texto de um lado, cena 3D do outro.
++ * `inverter` troca os lados — é o que cria o ritmo alternado da rolagem.
++ */
++export function FeatureSection({
++  id,
++  chave3d,
++  icone,
++  sobretitulo,
++  titulo,
++  frase,
++  texto,
++  beneficios = [],
++  cta,
++  inverter = false,
++  fundo = "claro",
++}) {
++  return (
++    <section id={id} className={`lp-secao lp-feature fundo-${fundo}`}>
++      <div className="lp-wrap">
++        <div className={`lp-feature-grade ${inverter ? "invertida" : ""}`}>
++          <div className="lp-feature-texto">
++            <Revelar variante="fade">
++              <div className="lp-sobretitulo">
++                <Icon name={icone} size={14} /> {sobretitulo}
++              </div>
++            </Revelar>
++
++            <Revelar atraso={70}>
++              <h2 className="lp-h2">{titulo}</h2>
++            </Revelar>
++
++            <Revelar atraso={120}>
++              <p className="lp-frase">{frase}</p>
++            </Revelar>
++
++            <Revelar atraso={170}>
++              <p className="lp-texto">{texto}</p>
++            </Revelar>
++
++            <Revelar atraso={220}>
++              <ul className="lp-beneficios">
++                {beneficios.map((b) => (
++                  <li key={b}>
++                    <Icon name="check" size={15} />
++                    <span>{b}</span>
++                  </li>
++                ))}
++              </ul>
++            </Revelar>
++
++            {cta ? (
++              <Revelar atraso={280}>
++                <Link to={cta.para} className="lp-link-cta">
++                  {cta.texto} <Icon name="arrowUpRight" size={15} />
++                </Link>
++              </Revelar>
++            ) : null}
++          </div>
++
++          <Revelar variante="escala" atraso={120} className="lp-feature-visual">
++            <Slot3D chave={chave3d} icone={icone} altura="media" />
++          </Revelar>
++        </div>
++      </div>
++    </section>
++  );
++}
++
++/* -------------------------------------------------------------- BenefitCard */
++
++export function BenefitCard({ icone, titulo, texto }) {
++  return (
++    <article className="lp-beneficio">
++      <span className="lp-beneficio-icone">
++        <Icon name={icone} size={19} />
++      </span>
++      <h3>{titulo}</h3>
++      <p>{texto}</p>
++    </article>
++  );
++}
++
++/* ---------------------------------------------------------------- StepCard */
++
++export function StepCard({ numero, titulo, texto }) {
++  return (
++    <article className="lp-passo">
++      <span className="lp-passo-num">{numero}</span>
++      <h3>{titulo}</h3>
++      <p>{texto}</p>
++    </article>
++  );
++}
++
++/* --------------------------------------------------------------- Audience */
++
++export function AudienceCard({ icone, titulo, texto }) {
++  return (
++    <article className="lp-publico">
++      <span className="lp-publico-icone">
++        <Icon name={icone} size={17} />
++      </span>
++      <div>
++        <h3>{titulo}</h3>
++        <p>{texto}</p>
++      </div>
++    </article>
++  );
++}
++
++/* --------------------------------------------------------------------- FAQ */
++
++export function FAQ({ itens }) {
++  const [aberto, setAberto] = useState(0);
++
++  return (
++    <div className="lp-faq">
++      {itens.map((item, i) => {
++        const ativo = aberto === i;
++        return (
++          <Revelar key={item.pergunta} atraso={i * 45}>
++            <div className={`lp-faq-item ${ativo ? "aberto" : ""}`}>
++              <button
++                type="button"
++                className="lp-faq-pergunta"
++                aria-expanded={ativo}
++                onClick={() => setAberto(ativo ? -1 : i)}
++              >
++                <span>{item.pergunta}</span>
++                <Icon name={ativo ? "x" : "plus"} size={16} />
++              </button>
++              <div className="lp-faq-resposta" role="region">
++                <p>{item.resposta}</p>
++              </div>
++            </div>
++          </Revelar>
++        );
++      })}
++    </div>
++  );
++}
++
++/* -------------------------------------------------------------- CTASection */
++
++export function CTASection({
++  titulo,
++  texto,
++  principal = { texto: "Criar conta grátis", para: "/cadastro" },
++  secundario = { texto: "Entrar", para: "/login" },
++  rodape,
++  chave3d,
++}) {
++  return (
++    <section className="lp-secao fundo-tinta lp-cta-secao">
++      <div className="lp-wrap">
++        <Revelar variante="escala">
++          <div className="lp-cta">
++            <div className="lp-cta-texto">
++              <h2>{titulo}</h2>
++              <p>{texto}</p>
++              <div className="lp-botoes">
++                <Link to={principal.para} className="lp-btn lp-btn-principal">
++                  <Icon name="bolt" size={16} /> {principal.texto}
++                </Link>
++                <Link to={secundario.para} className="lp-btn lp-btn-vidro">
++                  {secundario.texto}
++                </Link>
++              </div>
++              {rodape ? <span className="lp-cta-rodape">{rodape}</span> : null}
++            </div>
++            {chave3d ? (
++              <Slot3D chave={chave3d} icone="shield" altura="baixa" className="lp-cta-visual" />
++            ) : null}
++          </div>
++        </Revelar>
++      </div>
++    </section>
++  );
++}
+diff --git a/frontend/src/components/landing/Cabecalho.jsx b/frontend/src/components/landing/Cabecalho.jsx
+new file mode 100644
+index 0000000..826d46c
+--- /dev/null
++++ b/frontend/src/components/landing/Cabecalho.jsx
+@@ -0,0 +1,88 @@
++import { useEffect, useState } from "react";
++import { Link } from "react-router-dom";
++import Icon from "@/components/Icons";
++
++const LINKS = [
++  { href: "#funcionalidades", texto: "Funcionalidades" },
++  { href: "#beneficios", texto: "Benefícios" },
++  { href: "#como-funciona", texto: "Como funciona" },
++  { href: "#seguranca", texto: "Segurança" },
++  { href: "#faq", texto: "FAQ" },
++];
++
++/** Barra fixa do topo. Ganha fundo sólido depois que a página rola. */
++export default function Cabecalho() {
++  const [rolado, setRolado] = useState(false);
++  const [menuAberto, setMenuAberto] = useState(false);
++
++  useEffect(() => {
++    const aoRolar = () => setRolado(window.scrollY > 24);
++    aoRolar();
++    window.addEventListener("scroll", aoRolar, { passive: true });
++    return () => window.removeEventListener("scroll", aoRolar);
++  }, []);
++
++  // Trava a rolagem do fundo enquanto o menu mobile está aberto.
++  useEffect(() => {
++    document.body.style.overflow = menuAberto ? "hidden" : "";
++    return () => {
++      document.body.style.overflow = "";
++    };
++  }, [menuAberto]);
++
++  return (
++    <header className={`lp-topo ${rolado ? "rolado" : ""}`}>
++      <div className="lp-topo-inner">
++        <Link to="/" className="lp-marca" onClick={() => setMenuAberto(false)}>
++          <span className="lp-marca-selo">SD</span>
++          <b>Sócio Digital</b>
++        </Link>
++
++        <nav className="lp-menu" aria-label="Seções da página">
++          {LINKS.map((l) => (
++            <a key={l.href} href={l.href}>
++              {l.texto}
++            </a>
++          ))}
++        </nav>
++
++        <div className="lp-topo-acoes">
++          <Link to="/login" className="lp-btn lp-btn-texto">
++            Entrar
++          </Link>
++          <Link to="/cadastro" className="lp-btn lp-btn-principal lp-btn-sm">
++            Criar conta grátis
++          </Link>
++        </div>
++
++        <button
++          type="button"
++          className="lp-topo-hamburguer"
++          aria-label={menuAberto ? "Fechar menu" : "Abrir menu"}
++          aria-expanded={menuAberto}
++          onClick={() => setMenuAberto((v) => !v)}
++        >
++          <Icon name={menuAberto ? "x" : "menu"} size={20} />
++        </button>
++      </div>
++
++      {menuAberto ? (
++        <div className="lp-menu-mobile">
++          {LINKS.map((l) => (
++            <a key={l.href} href={l.href} onClick={() => setMenuAberto(false)}>
++              {l.texto}
++            </a>
++          ))}
++          <div className="lp-menu-mobile-acoes">
++            <Link to="/login" className="lp-btn lp-btn-vidro lp-btn-bloco">
++              Entrar
++            </Link>
++            <Link to="/cadastro" className="lp-btn lp-btn-principal lp-btn-bloco">
++              Criar conta grátis
++            </Link>
++          </div>
++        </div>
++      ) : null}
++    </header>
++  );
++}
+diff --git a/frontend/src/components/landing/Palco3D.jsx b/frontend/src/components/landing/Palco3D.jsx
+new file mode 100644
+index 0000000..6eaa6c1
+--- /dev/null
++++ b/frontend/src/components/landing/Palco3D.jsx
+@@ -0,0 +1,162 @@
++/**
++ * Palco3D — o único canvas WebGL da página inicial.
++ *
++ * Em vez de um <Canvas> por seção (o que criaria uma dezena de contextos
++ * WebGL simultâneos e derrubaria a performance), existe um só canvas fixo,
++ * do tamanho da janela, com `pointer-events: none`.
++ *
++ * A cada quadro o controlador:
++ *   1. pergunta ao registro qual slot está mais perto do centro da tela;
++ *   2. converte o retângulo desse slot (em pixels) para coordenadas de mundo;
++ *   3. move e redimensiona a composição para encaixar exatamente ali;
++ *   4. faz o fade quando a seção muda, trocando a composição montada.
++ *
++ * Como o encaixe parte do retângulo real do DOM, o mesmo código serve para
++ * desktop (coluna ao lado do texto) e mobile (bloco acima do texto) — não há
++ * layout 3D duplicado.
++ */
++
++import { Canvas, useFrame, useThree } from "@react-three/fiber";
++import { useEffect, useMemo, useRef, useState } from "react";
++import COMPOSICOES from "@/components/landing/composicoes";
++import { PALETA } from "@/components/landing/primitivas3d";
++import { movimentoReduzido, slotAtivo } from "@/components/landing/palco";
++
++/** Raio de referência usado ao desenhar as composições. */
++const RAIO_BASE = 1.62;
++
++function Controlador({ semMovimento }) {
++  const { camera, size } = useThree();
++  const grupo = useRef();
++
++  const [chaveMontada, setChaveMontada] = useState(null);
++  const fade = useRef(0);
++  const alvoFade = useRef(0);
++  const ponteiro = useRef({ x: 0, y: 0 });
++  const primeiroEncaixe = useRef(false);
++
++  useEffect(() => {
++    if (semMovimento) return undefined;
++    const aoMover = (e) => {
++      ponteiro.current.x = (e.clientX / window.innerWidth - 0.5) * 2;
++      ponteiro.current.y = -(e.clientY / window.innerHeight - 0.5) * 2;
++    };
++    window.addEventListener("pointermove", aoMover, { passive: true });
++    return () => window.removeEventListener("pointermove", aoMover);
++  }, [semMovimento]);
++
++  useFrame((_, delta) => {
++    const g = grupo.current;
++    if (!g) return;
++
++    const passo = Math.min(1, delta * 7);
++    const alvo = slotAtivo();
++    const chaveDesejada = alvo && COMPOSICOES[alvo.chave] ? alvo.chave : null;
++
++    /* ------------------------------------------------- troca de composição */
++    if (chaveDesejada !== chaveMontada) {
++      alvoFade.current = 0;
++      if (fade.current < 0.04) {
++        fade.current = 0;
++        primeiroEncaixe.current = false;
++        setChaveMontada(chaveDesejada);
++      }
++    } else {
++      alvoFade.current = chaveDesejada ? 1 : 0;
++    }
++    fade.current += (alvoFade.current - fade.current) * Math.min(1, delta * 6);
++
++    /* --------------------------------- encaixe no retângulo reservado */
++    if (alvo) {
++      const distancia = camera.position.z;
++      const alturaVisivel =
++        2 * Math.tan(((camera.fov * Math.PI) / 180) / 2) * distancia;
++      const unidadesPorPixel = alturaVisivel / size.height;
++
++      const centroX = alvo.rect.left + alvo.rect.width / 2;
++      const centroY = alvo.rect.top + alvo.rect.height / 2;
++
++      const alvoX = (centroX - size.width / 2) * unidadesPorPixel;
++      const alvoY = -(centroY - size.height / 2) * unidadesPorPixel;
++
++      const meiaAlturaMundo = (alvo.rect.height * unidadesPorPixel) / 2;
++      const meiaLarguraMundo = (alvo.rect.width * unidadesPorPixel) / 2;
++      const alvoEscala =
++        (Math.min(meiaAlturaMundo, meiaLarguraMundo) * 0.94) / RAIO_BASE;
++
++      if (!primeiroEncaixe.current) {
++        // O primeiro quadro após a troca já nasce no lugar certo: sem isso a
++        // composição atravessaria a tela vindo da posição anterior.
++        g.position.set(alvoX, alvoY, 0);
++        g.scale.setScalar(Math.max(0.001, alvoEscala));
++        primeiroEncaixe.current = true;
++      } else {
++        g.position.x += (alvoX - g.position.x) * passo;
++        g.position.y += (alvoY - g.position.y) * passo;
++        const e = g.scale.x + (alvoEscala - g.scale.x) * passo;
++        g.scale.setScalar(Math.max(0.001, e));
++      }
++    }
++
++    /* ------------------------------------------------- paralaxe e opacidade */
++    const inclinacaoX = semMovimento ? 0 : ponteiro.current.y * 0.09;
++    const inclinacaoY = semMovimento ? 0 : ponteiro.current.x * 0.13;
++    g.rotation.x += (inclinacaoX - g.rotation.x) * Math.min(1, delta * 3);
++    g.rotation.y += (inclinacaoY - g.rotation.y) * Math.min(1, delta * 3);
++
++    const o = Math.max(0, Math.min(1, fade.current));
++    g.visible = o > 0.01;
++    g.traverse((filho) => {
++      if (filho.material) {
++        const mats = Array.isArray(filho.material) ? filho.material : [filho.material];
++        mats.forEach((m) => {
++          m.opacity = o;
++        });
++      }
++    });
++  });
++
++  const Composicao = chaveMontada ? COMPOSICOES[chaveMontada] : null;
++
++  return (
++    <>
++      <ambientLight intensity={0.62} />
++      <directionalLight position={[3.5, 5.5, 5]} intensity={1.25} />
++      <pointLight position={[-4.5, 1.5, 3]} intensity={26} color={PALETA.marca} distance={16} />
++      <pointLight position={[4.5, -1.5, 3]} intensity={24} color={PALETA.apoio} distance={16} />
++
++      <group ref={grupo} scale={0.001}>
++        {Composicao ? <Composicao semMovimento={semMovimento} /> : null}
++      </group>
++    </>
++  );
++}
++
++export default function Palco3D() {
++  const semMovimento = useMemo(() => movimentoReduzido(), []);
++  const [frameloop, setFrameloop] = useState("always");
++
++  // Aba em segundo plano não precisa de quadros.
++  useEffect(() => {
++    const aoTrocar = () => setFrameloop(document.hidden ? "never" : "always");
++    document.addEventListener("visibilitychange", aoTrocar);
++    return () => document.removeEventListener("visibilitychange", aoTrocar);
++  }, []);
++
++  const dprMaximo =
++    typeof window !== "undefined" && window.innerWidth < 780 ? 1.4 : 1.8;
++
++  return (
++    <div className="lp-palco" aria-hidden="true">
++      <Canvas
++        dpr={[1, dprMaximo]}
++        frameloop={frameloop}
++        camera={{ position: [0, 0, 10], fov: 38 }}
++        gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
++        onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
++      >
++        <Controlador semMovimento={semMovimento} />
++      </Canvas>
++    </div>
++  );
++}
+diff --git a/frontend/src/components/landing/Rodape.jsx b/frontend/src/components/landing/Rodape.jsx
+new file mode 100644
+index 0000000..94fafe5
+--- /dev/null
++++ b/frontend/src/components/landing/Rodape.jsx
+@@ -0,0 +1,83 @@
++import { Link } from "react-router-dom";
++
++const COLUNAS = [
++  {
++    titulo: "Produto",
++    itens: [
++      { texto: "Vendas e PDV", href: "#vendas" },
++      { texto: "Financeiro", href: "#financeiro" },
++      { texto: "Clientes", href: "#clientes" },
++      { texto: "Estoque", href: "#estoque" },
++      { texto: "Relatórios", href: "#relatorios" },
++    ],
++  },
++  {
++    titulo: "Recursos",
++    itens: [
++      { texto: "Agenda de vencimentos", href: "#agenda" },
++      { texto: "Rotinas automáticas", href: "#automacao" },
++      { texto: "Notas fiscais", href: "#documentos" },
++      { texto: "Painel geral", href: "#painel" },
++    ],
++  },
++  {
++    titulo: "Saber mais",
++    itens: [
++      { texto: "Como funciona", href: "#como-funciona" },
++      { texto: "Para quem é", href: "#para-quem" },
++      { texto: "Segurança", href: "#seguranca" },
++      { texto: "Perguntas frequentes", href: "#faq" },
++    ],
++  },
++];
++
++export default function Rodape() {
++  const ano = new Date().getFullYear();
++
++  return (
++    <footer className="lp-rodape">
++      <div className="lp-wrap">
++        <div className="lp-rodape-grade">
++          <div className="lp-rodape-marca">
++            <span className="lp-marca-selo">SD</span>
++            <b>Sócio Digital</b>
++            <p>
++              Gestão e assistente executivo de IA em um sistema só, pensado para quem
++              toca a empresa e a operação ao mesmo tempo.
++            </p>
++          </div>
++
++          {COLUNAS.map((c) => (
++            <nav key={c.titulo} aria-label={c.titulo}>
++              <h3>{c.titulo}</h3>
++              <ul>
++                {c.itens.map((i) => (
++                  <li key={i.texto}>
++                    <a href={i.href}>{i.texto}</a>
++                  </li>
++                ))}
++              </ul>
++            </nav>
++          ))}
++
++          <nav aria-label="Conta">
++            <h3>Conta</h3>
++            <ul>
++              <li>
++                <Link to="/login">Entrar</Link>
++              </li>
++              <li>
++                <Link to="/cadastro">Criar conta grátis</Link>
++              </li>
++            </ul>
++          </nav>
++        </div>
++
++        <div className="lp-rodape-base">
++          <span>© {ano} Sócio Digital. Todos os direitos reservados.</span>
++          <span>Versão 5.0</span>
++        </div>
++      </div>
++    </footer>
++  );
++}
+diff --git a/frontend/src/components/landing/Slot3D.jsx b/frontend/src/components/landing/Slot3D.jsx
+new file mode 100644
+index 0000000..b4b1f0e
+--- /dev/null
++++ b/frontend/src/components/landing/Slot3D.jsx
+@@ -0,0 +1,39 @@
++import { useEffect, useRef } from "react";
++import Icon from "@/components/Icons";
++import { registrarSlot } from "@/components/landing/palco";
++
++/**
++ * Reserva no layout o espaço onde a cena 3D daquela seção será encaixada.
++ *
++ * O elemento em si é vazio: quem desenha é o canvas único do `Palco3D`, que lê
++ * o retângulo deste div e posiciona a composição exatamente sobre ele. Como o
++ * retângulo é definido pelo CSS normal, o comportamento responsivo (coluna ao
++ * lado no desktop, bloco acima no mobile) sai de graça.
++ *
++ * Quando não há WebGL, a página inteira ganha a classe `sem-3d` e o fallback
++ * em CSS abaixo aparece no lugar — uma composição em camadas com profundidade,
++ * não um espaço em branco.
++ */
++export default function Slot3D({ chave, icone = "gauge", altura = "media", className = "" }) {
++  const ref = useRef(null);
++
++  useEffect(() => registrarSlot(chave, ref.current), [chave]);
++
++  return (
++    <div
++      ref={ref}
++      className={`lp-slot lp-slot-${altura} ${className}`}
++      data-slot={chave}
++      aria-hidden="true"
++    >
++      <span className="lp-slot-halo" />
++      <span className="lp-slot-css">
++        <span className="lp-slot-css-tras" />
++        <span className="lp-slot-css-meio" />
++        <span className="lp-slot-css-frente">
++          <Icon name={icone} size={34} />
++        </span>
++      </span>
++    </div>
++  );
++}
+diff --git a/frontend/src/components/landing/composicoes.jsx b/frontend/src/components/landing/composicoes.jsx
+new file mode 100644
+index 0000000..ec9dd2a
+--- /dev/null
++++ b/frontend/src/components/landing/composicoes.jsx
+@@ -0,0 +1,555 @@
++/**
++ * As composições 3D — uma para cada seção da página inicial.
++ *
++ * Todas são desenhadas dentro de um raio aproximado de 1.6 unidades em torno da
++ * origem. O `Palco3D` usa esse raio de referência para encaixar a composição
++ * exatamente no retângulo que a seção reservou no layout, seja no desktop
++ * (coluna ao lado do texto) ou no mobile (bloco acima do texto).
++ *
++ * Nenhuma composição depende das outras: trocar uma não afeta o resto.
++ */
++
++import { useFrame } from "@react-three/fiber";
++import { useMemo, useRef } from "react";
++import {
++  Barra,
++  Cadeado,
++  Caixa,
++  Calendario,
++  Carrinho,
++  Conexao,
++  Documento,
++  Engrenagem,
++  Escudo,
++  Funil,
++  Moeda,
++  No,
++  PALETA,
++  Painel,
++  Pasta,
++  Relogio,
++} from "@/components/landing/primitivas3d";
++
++/* --------------------------------------------------------------- wrappers */
++
++/** Flutuação suave e contínua. Com movimento reduzido, fica parado. */
++function Flutua({
++  children,
++  amplitude = 0.12,
++  velocidade = 0.6,
++  fase = 0,
++  giro = 0,
++  semMovimento = false,
++  ...props
++}) {
++  const ref = useRef();
++  const base = props.position || [0, 0, 0];
++
++  useFrame((state) => {
++    if (!ref.current || semMovimento) return;
++    const t = state.clock.elapsedTime;
++    ref.current.position.y = base[1] + Math.sin(t * velocidade + fase) * amplitude;
++    if (giro) ref.current.rotation.y = Math.sin(t * velocidade * 0.7 + fase) * giro;
++  });
++
++  return (
++    <group ref={ref} {...props}>
++      {children}
++    </group>
++  );
++}
++
++/** Giro constante em torno de um eixo (engrenagens, moedas). */
++function Gira({ children, velocidade = 0.4, eixo = "y", semMovimento = false, ...props }) {
++  const ref = useRef();
++  useFrame((_, delta) => {
++    if (!ref.current || semMovimento) return;
++    ref.current.rotation[eixo] += delta * velocidade;
++  });
++  return (
++    <group ref={ref} {...props}>
++      {children}
++    </group>
++  );
++}
++
++/** Barra que cresce até a altura final quando a composição entra em cena. */
++function BarraAnimada({ alturaFinal, atraso = 0, cor, x, largura = 0.17, semMovimento }) {
++  const ref = useRef();
++  const nascimento = useRef(null);
++
++  useFrame((state) => {
++    if (!ref.current) return;
++    if (nascimento.current === null) nascimento.current = state.clock.elapsedTime;
++    if (semMovimento) {
++      ref.current.scale.y = 1;
++      return;
++    }
++    const t = Math.min(
++      1,
++      Math.max(0, (state.clock.elapsedTime - nascimento.current - atraso) * 1.9)
++    );
++    const suave = t * t * (3 - 2 * t);
++    const pulso = 1 + Math.sin(state.clock.elapsedTime * 1.3 + x * 3) * 0.025;
++    ref.current.scale.y = Math.max(0.001, suave * pulso);
++  });
++
++  return (
++    <group ref={ref} position={[x, 0, 0]} scale-y={0.001}>
++      <Barra altura={alturaFinal} largura={largura} cor={cor} />
++    </group>
++  );
++}
++
++/* ------------------------------------------------------- peças compartilhadas */
++
++/** Painel de dashboard: cabeçalho, gráfico de barras e duas fichas de KPI. */
++function PainelDashboard({ semMovimento, compacto = false }) {
++  const barras = compacto
++    ? [
++        { x: -0.3, h: 0.34, cor: PALETA.apoio },
++        { x: -0.05, h: 0.56, cor: PALETA.marcaClara },
++        { x: 0.2, h: 0.44, cor: PALETA.apoio },
++        { x: 0.45, h: 0.72, cor: PALETA.marca },
++      ]
++    : [
++        { x: -0.62, h: 0.3, cor: PALETA.apoio },
++        { x: -0.37, h: 0.46, cor: PALETA.apoio },
++        { x: -0.12, h: 0.38, cor: PALETA.marcaClara },
++        { x: 0.13, h: 0.62, cor: PALETA.marcaClara },
++        { x: 0.38, h: 0.52, cor: PALETA.marca },
++        { x: 0.63, h: 0.86, cor: PALETA.marca },
++      ];
++
++  return (
++    <group>
++      <Painel largura={2.1} altura={1.42} cor={PALETA.tinta2} raio={0.11} profundidade={0.07} />
++      <Painel
++        largura={2.02}
++        altura={0.18}
++        cor={PALETA.tinta3}
++        raio={0.05}
++        profundidade={0.02}
++        position={[0, 0.6, 0.045]}
++      />
++      <group position={[0, -0.52, 0.06]}>
++        {barras.map((b) => (
++          <BarraAnimada
++            key={b.x}
++            x={b.x}
++            alturaFinal={b.h}
++            cor={b.cor}
++            atraso={(b.x + 1) * 0.18}
++            semMovimento={semMovimento}
++          />
++        ))}
++      </group>
++      <Painel
++        largura={0.52}
++        altura={0.24}
++        cor={PALETA.marca}
++        emissiva={PALETA.marca}
++        brilho={0.3}
++        raio={0.06}
++        profundidade={0.02}
++        position={[-0.72, 0.32, 0.06]}
++      />
++      <Painel
++        largura={0.52}
++        altura={0.24}
++        cor={PALETA.apoio}
++        emissiva={PALETA.apoio}
++        brilho={0.3}
++        raio={0.06}
++        profundidade={0.02}
++        position={[-0.12, 0.32, 0.06]}
++      />
++    </group>
++  );
++}
++
++/* ---------------------------------------------------------- composições */
++
++function Hero({ semMovimento }) {
++  return (
++    <group>
++      <Flutua amplitude={0.07} velocidade={0.45} semMovimento={semMovimento}>
++        <group rotation={[0.06, -0.22, 0]}>
++          <PainelDashboard semMovimento={semMovimento} />
++        </group>
++      </Flutua>
++
++      <Flutua position={[-1.45, 0.62, 0.7]} velocidade={0.55} amplitude={0.14} semMovimento={semMovimento}>
++        <Gira velocidade={0.5} semMovimento={semMovimento}>
++          <Moeda simbolo="R$" cor={PALETA.marca} tamanho={0.3} />
++        </Gira>
++      </Flutua>
++      <Flutua position={[1.5, 0.78, 0.5]} velocidade={0.62} amplitude={0.12} fase={1.6} semMovimento={semMovimento}>
++        <Painel largura={0.66} altura={0.4} cor={PALETA.apoio} emissiva={PALETA.apoio} brilho={0.25} raio={0.07} />
++      </Flutua>
++      <Flutua position={[1.42, -0.72, 0.75]} velocidade={0.5} amplitude={0.13} fase={2.6} semMovimento={semMovimento}>
++        <Caixa tamanho={0.42} />
++      </Flutua>
++      <Flutua position={[-1.5, -0.66, 0.4]} velocidade={0.58} amplitude={0.11} fase={3.4} semMovimento={semMovimento}>
++        <Documento largura={0.44} cor={PALETA.marcaClara} linhas={3} />
++      </Flutua>
++    </group>
++  );
++}
++
++function Financeiro({ semMovimento }) {
++  return (
++    <group>
++      <Flutua amplitude={0.09} velocidade={0.5} semMovimento={semMovimento}>
++        <group rotation={[0.1, -0.28, -0.05]}>
++          <Painel largura={1.5} altura={0.94} cor={PALETA.tinta2} raio={0.1} profundidade={0.07} />
++          <Painel
++            largura={1.34}
++            altura={0.2}
++            cor={PALETA.marca}
++            emissiva={PALETA.marca}
++            brilho={0.28}
++            raio={0.05}
++            profundidade={0.02}
++            position={[0, 0.26, 0.05]}
++          />
++          <Painel
++            largura={1.34}
++            altura={0.14}
++            cor={PALETA.tinta3}
++            raio={0.04}
++            profundidade={0.02}
++            position={[0, 0.02, 0.05]}
++          />
++          <Painel
++            largura={0.86}
++            altura={0.14}
++            cor={PALETA.tinta3}
++            raio={0.04}
++            profundidade={0.02}
++            position={[-0.24, -0.2, 0.05]}
++          />
++        </group>
++      </Flutua>
++
++      <Flutua position={[0.98, 0.72, 0.6]} velocidade={0.6} amplitude={0.13} semMovimento={semMovimento}>
++        <Gira velocidade={0.62} semMovimento={semMovimento}>
++          <Moeda simbolo="R$" cor={PALETA.marca} tamanho={0.32} />
++        </Gira>
++      </Flutua>
++      <Flutua position={[-1.12, 0.52, 0.55]} velocidade={0.52} amplitude={0.11} fase={2.1} semMovimento={semMovimento}>
++        <Gira velocidade={0.44} semMovimento={semMovimento}>
++          <Moeda simbolo="%" cor={PALETA.apoio} tamanho={0.22} />
++        </Gira>
++      </Flutua>
++      <Flutua position={[1.02, -0.66, 0.45]} velocidade={0.48} amplitude={0.12} fase={3.2} semMovimento={semMovimento}>
++        <group rotation={[0.2, 0.4, 0.1]}>
++          <Painel largura={0.78} altura={0.48} cor={PALETA.apoioForte} raio={0.07} />
++          <Painel
++            largura={0.24}
++            altura={0.14}
++            cor={PALETA.marcaClara}
++            emissiva={PALETA.marcaClara}
++            brilho={0.4}
++            raio={0.03}
++            profundidade={0.02}
++            position={[-0.22, 0.06, 0.04]}
++          />
++        </group>
++      </Flutua>
++      <Flutua position={[-1.02, -0.6, 0.3]} velocidade={0.56} amplitude={0.1} fase={4.4} semMovimento={semMovimento}>
++        <Gira velocidade={0.5} semMovimento={semMovimento}>
++          <Moeda simbolo="R$" cor={PALETA.marcaClara} tamanho={0.2} />
++        </Gira>
++      </Flutua>
++    </group>
++  );
++}
++
++function Vendas({ semMovimento }) {
++  const linha = useMemo(
++    () => [
++      { x: -0.78, h: 0.34 },
++      { x: -0.47, h: 0.5 },
++      { x: -0.16, h: 0.44 },
++      { x: 0.15, h: 0.72 },
++      { x: 0.46, h: 0.88 },
++      { x: 0.77, h: 1.12 },
++    ],
++    []
++  );
++
++  return (
++    <group>
++      <group position={[0, -0.5, 0]}>
++        {linha.map((b, i) => (
++          <BarraAnimada
++            key={b.x}
++            x={b.x}
++            alturaFinal={b.h}
++            largura={0.2}
++            cor={i > 3 ? PALETA.marca : PALETA.apoio}
++            atraso={i * 0.11}
++            semMovimento={semMovimento}
++          />
++        ))}
++      </group>
++
++      <Flutua position={[-1.15, 0.72, 0.55]} velocidade={0.55} amplitude={0.12} semMovimento={semMovimento}>
++        <Carrinho tamanho={0.56} />
++      </Flutua>
++      <Flutua position={[1.16, 0.66, 0.4]} velocidade={0.5} amplitude={0.13} fase={2.2} semMovimento={semMovimento}>
++        <Funil tamanho={0.7} />
++      </Flutua>
++      <Flutua position={[0.98, -0.86, 0.6]} velocidade={0.6} amplitude={0.1} fase={3.8} semMovimento={semMovimento}>
++        <Gira velocidade={0.5} semMovimento={semMovimento}>
++          <Moeda simbolo="R$" cor={PALETA.marca} tamanho={0.2} />
++        </Gira>
++      </Flutua>
++    </group>
++  );
++}
++
++function Clientes({ semMovimento }) {
++  const nos = useMemo(
++    () => [
++      { p: [0, 0, 0], r: 0.26, cor: PALETA.marca },
++      { p: [-1.02, 0.6, 0.2], r: 0.17, cor: PALETA.apoio },
++      { p: [1.05, 0.52, -0.1], r: 0.17, cor: PALETA.apoio },
++      { p: [-0.86, -0.7, 0.15], r: 0.15, cor: PALETA.marcaClara },
++      { p: [0.92, -0.76, 0.2], r: 0.15, cor: PALETA.apoio },
++      { p: [0.05, 1.06, -0.2], r: 0.13, cor: PALETA.marcaClara },
++      { p: [-0.1, -1.12, -0.15], r: 0.13, cor: PALETA.apoio },
++    ],
++    []
++  );
++
++  return (
++    <group>
++      <Flutua amplitude={0.06} velocidade={0.4} semMovimento={semMovimento}>
++        <Gira velocidade={0.16} semMovimento={semMovimento}>
++          {nos.slice(1).map((n, i) => (
++            <Conexao
++              key={i}
++              de={nos[0].p}
++              para={n.p}
++              cor={i % 2 ? PALETA.marcaClara : PALETA.apoio}
++            />
++          ))}
++          {nos.map((n, i) => (
++            <No key={i} position={n.p} raio={n.r} cor={n.cor} />
++          ))}
++        </Gira>
++      </Flutua>
++
++      <Flutua position={[1.28, 0.98, 0.5]} velocidade={0.55} amplitude={0.12} fase={1.4} semMovimento={semMovimento}>
++        <Painel largura={0.6} altura={0.36} cor={PALETA.tinta2} raio={0.07} />
++      </Flutua>
++    </group>
++  );
++}
++
++function Estoque({ semMovimento }) {
++  return (
++    <group>
++      <Flutua amplitude={0.06} velocidade={0.42} semMovimento={semMovimento}>
++        <group rotation={[0.16, -0.5, 0]}>
++          <Caixa tamanho={0.72} position={[-0.42, -0.5, 0]} />
++          <Caixa tamanho={0.72} position={[0.42, -0.5, -0.05]} cor="#b3793f" />
++          <Caixa tamanho={0.72} position={[0, 0.09, 0.05]} />
++          <Caixa tamanho={0.56} position={[-0.1, 0.62, 0.12]} cor="#d79c62" />
++        </group>
++      </Flutua>
++
++      <Flutua position={[1.24, 0.78, 0.55]} velocidade={0.58} amplitude={0.13} fase={2.4} semMovimento={semMovimento}>
++        <Painel
++          largura={0.62}
++          altura={0.34}
++          cor={PALETA.marca}
++          emissiva={PALETA.marca}
++          brilho={0.3}
++          raio={0.07}
++        />
++      </Flutua>
++      <Flutua position={[-1.3, 0.52, 0.35]} velocidade={0.5} amplitude={0.11} fase={4} semMovimento={semMovimento}>
++        <Painel largura={0.5} altura={0.3} cor={PALETA.apoio} emissiva={PALETA.apoio} brilho={0.28} raio={0.06} />
++      </Flutua>
++    </group>
++  );
++}
++
++function Relatorios({ semMovimento }) {
++  return (
++    <group>
++      <Flutua amplitude={0.08} velocidade={0.46} semMovimento={semMovimento}>
++        <group rotation={[0.08, -0.24, 0]}>
++          <PainelDashboard semMovimento={semMovimento} compacto />
++        </group>
++      </Flutua>
++
++      <Flutua position={[-1.28, 0.6, 0.6]} velocidade={0.52} amplitude={0.13} fase={1.2} semMovimento={semMovimento}>
++        <group rotation={[0.1, 0.42, -0.08]}>
++          <Documento largura={0.6} cor={PALETA.marca} />
++        </group>
++      </Flutua>
++      <Flutua position={[1.3, -0.68, 0.45]} velocidade={0.58} amplitude={0.12} fase={3} semMovimento={semMovimento}>
++        <group rotation={[0.1, -0.4, 0.08]}>
++          <Documento largura={0.52} cor={PALETA.apoio} linhas={3} />
++        </group>
++      </Flutua>
++    </group>
++  );
++}
++
++function Agenda({ semMovimento }) {
++  return (
++    <group>
++      <Flutua amplitude={0.08} velocidade={0.44} semMovimento={semMovimento}>
++        <group rotation={[0.06, -0.26, 0]}>
++          <Calendario largura={1.5} />
++        </group>
++      </Flutua>
++
++      <Flutua position={[1.16, -0.72, 0.6]} velocidade={0.56} amplitude={0.13} fase={2} semMovimento={semMovimento}>
++        <Relogio raio={0.42} />
++      </Flutua>
++      <Flutua position={[-1.24, 0.82, 0.4]} velocidade={0.5} amplitude={0.11} fase={3.6} semMovimento={semMovimento}>
++        <Painel
++          largura={0.56}
++          altura={0.3}
++          cor={PALETA.marca}
++          emissiva={PALETA.marca}
++          brilho={0.32}
++          raio={0.06}
++        />
++      </Flutua>
++    </group>
++  );
++}
++
++function Automacao({ semMovimento }) {
++  return (
++    <group>
++      <Gira velocidade={0.34} eixo="z" semMovimento={semMovimento} position={[-0.36, 0.2, 0]}>
++        <Engrenagem raio={0.62} dentes={12} cor={PALETA.marca} />
++      </Gira>
++      <Gira velocidade={-0.5} eixo="z" semMovimento={semMovimento} position={[0.62, -0.3, -0.1]}>
++        <Engrenagem raio={0.42} dentes={9} cor={PALETA.apoio} />
++      </Gira>
++      <Gira velocidade={0.62} eixo="z" semMovimento={semMovimento} position={[0.52, 0.72, 0.15]}>
++        <Engrenagem raio={0.28} dentes={8} cor={PALETA.marcaClara} />
++      </Gira>
++
++      <Flutua position={[-1.16, -0.82, 0.5]} velocidade={0.54} amplitude={0.12} fase={2.8} semMovimento={semMovimento}>
++        <Painel
++          largura={0.68}
++          altura={0.34}
++          cor={PALETA.tinta2}
++          raio={0.07}
++        />
++      </Flutua>
++      <Conexao de={[-1.16, -0.82, 0.3]} para={[0.4, -0.3, 0]} cor={PALETA.marcaClara} espessura={0.014} />
++    </group>
++  );
++}
++
++function Documentos({ semMovimento }) {
++  return (
++    <group>
++      <Flutua amplitude={0.07} velocidade={0.45} semMovimento={semMovimento}>
++        <group rotation={[0.1, -0.3, 0]}>
++          <Pasta largura={1.36} />
++        </group>
++      </Flutua>
++
++      <Flutua position={[0.96, 0.82, 0.7]} velocidade={0.56} amplitude={0.13} fase={1.5} semMovimento={semMovimento}>
++        <group rotation={[0.1, 0.34, 0.12]}>
++          <Documento largura={0.58} cor={PALETA.marca} />
++        </group>
++      </Flutua>
++      <Flutua position={[-1.14, 0.72, 0.4]} velocidade={0.5} amplitude={0.11} fase={3.2} semMovimento={semMovimento}>
++        <group rotation={[0.1, -0.3, -0.1]}>
++          <Documento largura={0.5} cor={PALETA.apoio} linhas={3} />
++        </group>
++      </Flutua>
++    </group>
++  );
++}
++
++function Dashboard({ semMovimento }) {
++  return (
++    <group>
++      <Flutua amplitude={0.07} velocidade={0.42} semMovimento={semMovimento}>
++        <group rotation={[0.05, -0.16, 0]}>
++          <PainelDashboard semMovimento={semMovimento} />
++          <Painel
++            largura={0.66}
++            altura={0.9}
++            cor={PALETA.tinta3}
++            raio={0.08}
++            profundidade={0.04}
++            position={[1.42, -0.1, -0.12]}
++          />
++          <Painel
++            largura={0.54}
++            altura={0.18}
++            cor={PALETA.marca}
++            emissiva={PALETA.marca}
++            brilho={0.3}
++            raio={0.05}
++            profundidade={0.02}
++            position={[1.42, 0.2, -0.08]}
++          />
++          <Painel
++            largura={0.54}
++            altura={0.18}
++            cor={PALETA.apoio}
++            emissiva={PALETA.apoio}
++            brilho={0.3}
++            raio={0.05}
++            profundidade={0.02}
++            position={[1.42, -0.06, -0.08]}
++          />
++        </group>
++      </Flutua>
++    </group>
++  );
++}
++
++function Seguranca({ semMovimento }) {
++  return (
++    <group>
++      <Flutua amplitude={0.08} velocidade={0.44} semMovimento={semMovimento}>
++        <group rotation={[0.05, -0.16, 0]}>
++          <Escudo tamanho={1.7} />
++          <Cadeado tamanho={0.42} position={[0, 0.02, 0.18]} />
++        </group>
++      </Flutua>
++
++      <Flutua position={[1.24, 0.78, 0.4]} velocidade={0.52} amplitude={0.12} fase={2.2} semMovimento={semMovimento}>
++        <Painel largura={0.5} altura={0.3} cor={PALETA.apoio} emissiva={PALETA.apoio} brilho={0.3} raio={0.06} />
++      </Flutua>
++      <Flutua position={[-1.26, -0.66, 0.35]} velocidade={0.58} amplitude={0.11} fase={4.1} semMovimento={semMovimento}>
++        <Painel largura={0.44} altura={0.26} cor={PALETA.marcaClara} emissiva={PALETA.marcaClara} brilho={0.3} raio={0.06} />
++      </Flutua>
++    </group>
++  );
++}
++
++/* ------------------------------------------------------------------ mapa */
++
++export const COMPOSICOES = {
++  hero: Hero,
++  financeiro: Financeiro,
++  vendas: Vendas,
++  clientes: Clientes,
++  estoque: Estoque,
++  relatorios: Relatorios,
++  agenda: Agenda,
++  automacao: Automacao,
++  documentos: Documentos,
++  dashboard: Dashboard,
++  seguranca: Seguranca,
++};
++
++export default COMPOSICOES;
+diff --git a/frontend/src/components/landing/palco.js b/frontend/src/components/landing/palco.js
+new file mode 100644
+index 0000000..ac91601
+--- /dev/null
++++ b/frontend/src/components/landing/palco.js
+@@ -0,0 +1,72 @@
++/**
++ * Registro dos "slots" 3D da página inicial.
++ *
++ * Cada seção reserva um retângulo vazio no layout (o componente `Slot3D`) e
++ * registra o elemento DOM aqui. O canvas único (`Palco3D`) lê esse registro a
++ * cada quadro, descobre qual slot está mais próximo do centro da tela e move a
++ * composição 3D para exatamente aquela posição.
++ *
++ * O registro vive fora do React de propósito: `Palco3D` é carregado por
++ * `lazy()` em um chunk separado, e um contexto de React não atravessaria esse
++ * limite sem obrigar a página inteira a re-renderizar a cada rolagem.
++ */
++
++const slots = new Map();
++
++/** Registra um slot e devolve a função de limpeza. */
++export function registrarSlot(chave, elemento) {
++  if (!chave || !elemento) return () => {};
++  slots.set(chave, elemento);
++  return () => {
++    if (slots.get(chave) === elemento) slots.delete(chave);
++  };
++}
++
++export function slotsRegistrados() {
++  return slots;
++}
++
++/**
++ * Decide qual slot deve receber a cena: o que estiver visível e mais próximo
++ * do centro vertical da janela. Devolve `null` quando nenhum está na tela.
++ */
++export function slotAtivo() {
++  const centro = window.innerHeight / 2;
++  let melhor = null;
++  let menorDistancia = Infinity;
++
++  slots.forEach((el, chave) => {
++    if (!el || !el.isConnected) return;
++    const r = el.getBoundingClientRect();
++    if (r.bottom < 0 || r.top > window.innerHeight) return;
++    const distancia = Math.abs(r.top + r.height / 2 - centro);
++    if (distancia < menorDistancia) {
++      menorDistancia = distancia;
++      melhor = { chave, rect: r };
++    }
++  });
++
++  return melhor;
++}
++
++/** WebGL disponível? Usado para escolher entre canvas e fallback em CSS. */
++export function temWebGL() {
++  try {
++    const c = document.createElement("canvas");
++    return !!(
++      window.WebGLRenderingContext &&
++      (c.getContext("webgl") || c.getContext("experimental-webgl"))
++    );
++  } catch (e) {
++    return false;
++  }
++}
++
++/** O visitante pediu menos movimento? */
++export function movimentoReduzido() {
++  return (
++    typeof window !== "undefined" &&
++    typeof window.matchMedia === "function" &&
++    window.matchMedia("(prefers-reduced-motion: reduce)").matches
++  );
++}
+diff --git a/frontend/src/components/landing/primitivas3d.jsx b/frontend/src/components/landing/primitivas3d.jsx
+new file mode 100644
+index 0000000..921c04f
+--- /dev/null
++++ b/frontend/src/components/landing/primitivas3d.jsx
+@@ -0,0 +1,486 @@
++/**
++ * Primitivas 3D reutilizáveis da página inicial.
++ *
++ * Regras que valem para todo o arquivo:
++ *  - nada é baixado (sem modelos .glb, sem HDR, sem fontes externas): tudo é
++ *    geometria primitiva e textura gerada em <canvas>;
++ *  - todo material nasce com `transparent`, porque a troca de composição entre
++ *    seções é feita por opacidade;
++ *  - a paleta tem só duas cores de marca (verde principal, azul de apoio) mais
++ *    neutros — é a mesma restrição aplicada ao CSS.
++ */
++
++import { useMemo } from "react";
++import * as THREE from "three";
++
++export const PALETA = {
++  marca: "#10b981",
++  marcaForte: "#059669",
++  marcaClara: "#34d399",
++  apoio: "#3b82f6",
++  apoioForte: "#2563eb",
++  tinta: "#0a1128",
++  tinta2: "#16224a",
++  tinta3: "#22326b",
++  neutro: "#dbe4f5",
++  neutroClaro: "#f4f7fd",
++};
++
++export const lerp = (a, b, t) => a + (b - a) * t;
++
++/* --------------------------------------------------------------- material */
++
++/**
++ * Material padrão. `transparent` fica sempre ligado para permitir o
++ * fade entre composições; `depthWrite` continua ligado para os objetos não
++ * se atravessarem visualmente enquanto estão opacos.
++ */
++export function Mat({ cor, emissiva, brilho = 0, aspereza = 0.42, metal = 0.16 }) {
++  return (
++    <meshStandardMaterial
++      color={cor}
++      roughness={aspereza}
++      metalness={metal}
++      transparent
++      opacity={1}
++      emissive={emissiva || "#000000"}
++      emissiveIntensity={emissiva ? brilho || 0.4 : 0}
++    />
++  );
++}
++
++/* -------------------------------------------------------------- geometrias */
++
++/** Retângulo extrudado com cantos arredondados — base de painéis e cartões. */
++export function useFormaArredondada(largura, altura, raio = 0.12, profundidade = 0.06) {
++  return useMemo(() => {
++    const forma = new THREE.Shape();
++    const l = largura / 2;
++    const a = altura / 2;
++    const r = Math.min(raio, l * 0.9, a * 0.9);
++    forma.moveTo(-l + r, -a);
++    forma.lineTo(l - r, -a);
++    forma.quadraticCurveTo(l, -a, l, -a + r);
++    forma.lineTo(l, a - r);
++    forma.quadraticCurveTo(l, a, l - r, a);
++    forma.lineTo(-l + r, a);
++    forma.quadraticCurveTo(-l, a, -l, a - r);
++    forma.lineTo(-l, -a + r);
++    forma.quadraticCurveTo(-l, -a, -l + r, -a);
++    const geo = new THREE.ExtrudeGeometry(forma, {
++      depth: profundidade,
++      bevelEnabled: true,
++      bevelSize: 0.012,
++      bevelThickness: 0.012,
++      bevelSegments: 2,
++      curveSegments: 8,
++    });
++    geo.center();
++    return geo;
++  }, [largura, altura, raio, profundidade]);
++}
++
++/** Textura de texto curto desenhada em canvas (usada nas moedas). */
++export function useTexturaTexto(texto, cor = PALETA.tinta, fundo = "#ffffff") {
++  return useMemo(() => {
++    const c = document.createElement("canvas");
++    c.width = 256;
++    c.height = 256;
++    const ctx = c.getContext("2d");
++    ctx.fillStyle = fundo;
++    ctx.fillRect(0, 0, 256, 256);
++    ctx.fillStyle = cor;
++    ctx.font = "bold 116px Outfit, system-ui, sans-serif";
++    ctx.textAlign = "center";
++    ctx.textBaseline = "middle";
++    ctx.fillText(texto, 128, 136);
++    const t = new THREE.CanvasTexture(c);
++    t.anisotropy = 4;
++    return t;
++  }, [texto, cor, fundo]);
++}
++
++/* ------------------------------------------------------------- componentes */
++
++/** Painel/cartão retangular arredondado. */
++export function Painel({
++  largura = 1,
++  altura = 0.6,
++  cor = PALETA.tinta2,
++  emissiva,
++  brilho,
++  raio,
++  profundidade = 0.05,
++  ...props
++}) {
++  const geo = useFormaArredondada(
++    largura,
++    altura,
++    raio ?? Math.min(0.1, altura / 3),
++    profundidade
++  );
++  return (
++    <mesh geometry={geo} castShadow={false} {...props}>
++      <Mat cor={cor} emissiva={emissiva} brilho={brilho} />
++    </mesh>
++  );
++}
++
++/** Moeda: cilindro chato com um símbolo impresso nas faces. */
++export function Moeda({ simbolo = "R$", cor = PALETA.marca, tamanho = 0.3, ...props }) {
++  const textura = useTexturaTexto(simbolo, "#06301f", "#ffffff");
++  return (
++    <group {...props}>
++      <mesh rotation={[Math.PI / 2, 0, 0]}>
++        <cylinderGeometry args={[tamanho, tamanho, tamanho * 0.17, 34]} />
++        <Mat cor={cor} emissiva={cor} brilho={0.22} aspereza={0.3} metal={0.55} />
++      </mesh>
++      <mesh position={[0, 0, tamanho * 0.093]}>
++        <circleGeometry args={[tamanho * 0.74, 30]} />
++        <meshStandardMaterial map={textura} transparent opacity={1} roughness={0.5} />
++      </mesh>
++      <mesh position={[0, 0, -tamanho * 0.093]} rotation={[0, Math.PI, 0]}>
++        <circleGeometry args={[tamanho * 0.74, 30]} />
++        <meshStandardMaterial map={textura} transparent opacity={1} roughness={0.5} />
++      </mesh>
++    </group>
++  );
++}
++
++/** Caixa de estoque com tampa e fita. */
++export function Caixa({ tamanho = 0.5, cor = "#c98a4b", ...props }) {
++  return (
++    <group {...props}>
++      <mesh>
++        <boxGeometry args={[tamanho, tamanho * 0.78, tamanho * 0.82]} />
++        <Mat cor={cor} aspereza={0.72} metal={0.04} />
++      </mesh>
++      <mesh position={[0, tamanho * 0.395, 0]}>
++        <boxGeometry args={[tamanho * 1.02, tamanho * 0.05, tamanho * 0.84]} />
++        <Mat cor="#a86f38" aspereza={0.7} metal={0.04} />
++      </mesh>
++      <mesh position={[0, tamanho * 0.02, tamanho * 0.42]}>
++        <boxGeometry args={[tamanho * 0.12, tamanho * 0.8, tamanho * 0.02]} />
++        <Mat cor={PALETA.neutroClaro} aspereza={0.6} metal={0.02} />
++      </mesh>
++    </group>
++  );
++}
++
++/** Barra vertical de gráfico, ancorada pela base. */
++export function Barra({ altura = 0.6, largura = 0.17, cor = PALETA.marca, ...props }) {
++  return (
++    <mesh position-y={altura / 2} {...props}>
++      <boxGeometry args={[largura, altura, largura]} />
++      <Mat cor={cor} emissiva={cor} brilho={0.2} aspereza={0.35} metal={0.25} />
++    </mesh>
++  );
++}
++
++/** Esfera usada como "nó" nas composições de rede/clientes. */
++export function No({ raio = 0.16, cor = PALETA.apoio, ...props }) {
++  return (
++    <mesh {...props}>
++      <sphereGeometry args={[raio, 24, 18]} />
++      <Mat cor={cor} emissiva={cor} brilho={0.32} aspereza={0.3} metal={0.3} />
++    </mesh>
++  );
++}
++
++/** Segmento fino ligando dois pontos — as "conexões" do CRM e do fluxo. */
++export function Conexao({ de, para, espessura = 0.018, cor = PALETA.apoio }) {
++  const { posicao, quaternion, comprimento } = useMemo(() => {
++    const a = new THREE.Vector3(...de);
++    const b = new THREE.Vector3(...para);
++    const dir = new THREE.Vector3().subVectors(b, a);
++    const comp = dir.length();
++    const q = new THREE.Quaternion().setFromUnitVectors(
++      new THREE.Vector3(0, 1, 0),
++      dir.clone().normalize()
++    );
++    return {
++      posicao: new THREE.Vector3().addVectors(a, b).multiplyScalar(0.5),
++      quaternion: q,
++      comprimento: comp,
++    };
++  }, [de, para]);
++
++  return (
++    <mesh position={posicao} quaternion={quaternion}>
++      <cylinderGeometry args={[espessura, espessura, comprimento, 8]} />
++      <Mat cor={cor} emissiva={cor} brilho={0.5} aspereza={0.4} metal={0.1} />
++    </mesh>
++  );
++}
++
++/** Engrenagem: anel central + dentes distribuídos. */
++export function Engrenagem({ raio = 0.4, dentes = 10, cor = PALETA.apoio, ...props }) {
++  const posicoes = useMemo(
++    () =>
++      Array.from({ length: dentes }, (_, i) => {
++        const a = (i / dentes) * Math.PI * 2;
++        return { a, x: Math.cos(a) * raio, y: Math.sin(a) * raio };
++      }),
++    [dentes, raio]
++  );
++
++  return (
++    <group {...props}>
++      <mesh rotation={[Math.PI / 2, 0, 0]}>
++        <torusGeometry args={[raio * 0.74, raio * 0.24, 12, 30]} />
++        <Mat cor={cor} emissiva={cor} brilho={0.22} aspereza={0.35} metal={0.4} />
++      </mesh>
++      <mesh rotation={[Math.PI / 2, 0, 0]}>
++        <cylinderGeometry args={[raio * 0.24, raio * 0.24, raio * 0.28, 18]} />
++        <Mat cor={PALETA.tinta3} aspereza={0.4} metal={0.35} />
++      </mesh>
++      {posicoes.map(({ a, x, y }, i) => (
++        <mesh key={i} position={[x, y, 0]} rotation={[0, 0, a]}>
++          <boxGeometry args={[raio * 0.3, raio * 0.19, raio * 0.26]} />
++          <Mat cor={cor} emissiva={cor} brilho={0.18} aspereza={0.35} metal={0.4} />
++        </mesh>
++      ))}
++    </group>
++  );
++}
++
++/** Escudo extrudado — usado na seção de segurança. */
++export function Escudo({ tamanho = 0.9, cor = PALETA.marca, ...props }) {
++  const geo = useMemo(() => {
++    const s = new THREE.Shape();
++    const l = tamanho * 0.5;
++    const a = tamanho * 0.62;
++    s.moveTo(0, a);
++    s.quadraticCurveTo(l, a * 0.82, l, a * 0.34);
++    s.quadraticCurveTo(l, -a * 0.42, 0, -a);
++    s.quadraticCurveTo(-l, -a * 0.42, -l, a * 0.34);
++    s.quadraticCurveTo(-l, a * 0.82, 0, a);
++    const g = new THREE.ExtrudeGeometry(s, {
++      depth: tamanho * 0.15,
++      bevelEnabled: true,
++      bevelSize: 0.02,
++      bevelThickness: 0.02,
++      bevelSegments: 2,
++      curveSegments: 14,
++    });
++    g.center();
++    return g;
++  }, [tamanho]);
++
++  return (
++    <mesh geometry={geo} {...props}>
++      <Mat cor={cor} emissiva={cor} brilho={0.24} aspereza={0.32} metal={0.35} />
++    </mesh>
++  );
++}
++
++/** Cadeado simples: corpo + arco. */
++export function Cadeado({ tamanho = 0.34, cor = PALETA.neutroClaro, ...props }) {
++  return (
++    <group {...props}>
++      <mesh>
++        <boxGeometry args={[tamanho, tamanho * 0.78, tamanho * 0.42]} />
++        <Mat cor={cor} aspereza={0.34} metal={0.45} />
++      </mesh>
++      <mesh position={[0, tamanho * 0.55, 0]} rotation={[Math.PI / 2, 0, 0]}>
++        <torusGeometry args={[tamanho * 0.3, tamanho * 0.08, 10, 22, Math.PI]} />
++        <Mat cor={cor} aspereza={0.34} metal={0.5} />
++      </mesh>
++    </group>
++  );
++}
++
++/** Folha de calendário: cabeçalho colorido + grade de dias. */
++export function Calendario({ largura = 1.1, cor = PALETA.marca, ...props }) {
++  const altura = largura * 0.92;
++  const dias = useMemo(() => {
++    const linhas = 4;
++    const colunas = 5;
++    const out = [];
++    for (let l = 0; l < linhas; l += 1) {
++      for (let c = 0; c < colunas; c += 1) {
++        out.push({
++          x: (c - (colunas - 1) / 2) * (largura * 0.155),
++          y: altura * 0.16 - l * (altura * 0.155),
++          destaque: l === 2 && c === 3,
++        });
++      }
++    }
++    return out;
++  }, [largura, altura]);
++
++  return (
++    <group {...props}>
++      <Painel largura={largura} altura={altura} cor={PALETA.neutroClaro} raio={0.09} />
++      <group position={[0, 0, 0.045]}>
++        <Painel
++          largura={largura * 0.98}
++          altura={altura * 0.2}
++          cor={cor}
++          emissiva={cor}
++          brilho={0.2}
++          raio={0.05}
++          profundidade={0.02}
++          position={[0, altura * 0.37, 0]}
++        />
++        {dias.map((d, i) => (
++          <mesh key={i} position={[d.x, d.y, 0.01]}>
++            <circleGeometry args={[largura * 0.045, 14]} />
++            <meshStandardMaterial
++              color={d.destaque ? cor : "#c3cee4"}
++              emissive={d.destaque ? cor : "#000000"}
++              emissiveIntensity={d.destaque ? 0.55 : 0}
++              transparent
++              opacity={1}
++              roughness={0.5}
++            />
++          </mesh>
++        ))}
++      </group>
++    </group>
++  );
++}
++
++/** Relógio analógico estilizado. */
++export function Relogio({ raio = 0.4, cor = PALETA.apoio, ...props }) {
++  return (
++    <group {...props}>
++      <mesh rotation={[Math.PI / 2, 0, 0]}>
++        <cylinderGeometry args={[raio, raio, raio * 0.22, 34]} />
++        <Mat cor={PALETA.neutroClaro} aspereza={0.34} metal={0.3} />
++      </mesh>
++      <mesh position={[0, 0, raio * 0.12]}>
++        <circleGeometry args={[raio * 0.84, 30]} />
++        <meshStandardMaterial color={PALETA.tinta2} transparent opacity={1} roughness={0.5} />
++      </mesh>
++      <mesh position={[0, raio * 0.22, raio * 0.14]}>
++        <boxGeometry args={[raio * 0.07, raio * 0.5, raio * 0.03]} />
++        <Mat cor={cor} emissiva={cor} brilho={0.6} />
++      </mesh>
++      <mesh position={[raio * 0.16, 0, raio * 0.14]} rotation={[0, 0, -Math.PI / 2]}>
++        <boxGeometry args={[raio * 0.06, raio * 0.36, raio * 0.03]} />
++        <Mat cor={PALETA.marcaClara} emissiva={PALETA.marcaClara} brilho={0.6} />
++      </mesh>
++    </group>
++  );
++}
++
++/** Documento com "linhas de texto" e um selo colorido. */
++export function Documento({ largura = 0.78, cor = PALETA.apoio, linhas = 4, ...props }) {
++  const altura = largura * 1.32;
++  return (
++    <group {...props}>
++      <Painel largura={largura} altura={altura} cor={PALETA.neutroClaro} raio={0.05} />
++      <group position={[0, 0, 0.04]}>
++        {Array.from({ length: linhas }).map((_, i) => (
++          <mesh
++            key={i}
++            position={[
++              -largura * 0.06 * (i % 2),
++              altura * 0.24 - i * (altura * 0.13),
++              0,
++            ]}
++          >
++            <planeGeometry args={[largura * (i % 2 ? 0.5 : 0.66), altura * 0.045]} />
++            <meshStandardMaterial color="#c3cee4" transparent opacity={1} roughness={0.6} />
++          </mesh>
++        ))}
++        <mesh position={[largura * 0.24, -altura * 0.34, 0]}>
++          <circleGeometry args={[largura * 0.14, 22]} />
++          <meshStandardMaterial
++            color={cor}
++            emissive={cor}
++            emissiveIntensity={0.4}
++            transparent
++            opacity={1}
++            roughness={0.4}
++          />
++        </mesh>
++      </group>
++    </group>
++  );
++}
++
++/** Pasta de arquivos (aba + corpo). */
++export function Pasta({ largura = 0.95, cor = PALETA.marcaForte, ...props }) {
++  const altura = largura * 0.72;
++  return (
++    <group {...props}>
++      <Painel
++        largura={largura * 0.42}
++        altura={altura * 0.2}
++        cor={cor}
++        raio={0.04}
++        profundidade={0.04}
++        position={[-largura * 0.28, altura * 0.52, -0.02]}
++      />
++      <Painel largura={largura} altura={altura} cor={cor} raio={0.07} profundidade={0.06} />
++      <Painel
++        largura={largura * 0.86}
++        altura={altura * 0.8}
++        cor={PALETA.neutroClaro}
++        raio={0.04}
++        profundidade={0.02}
++        position={[0, altura * 0.06, 0.05]}
++      />
++    </group>
++  );
++}
++
++/** Carrinho de compras estilizado (cesto + duas rodas). */
++export function Carrinho({ tamanho = 0.62, cor = PALETA.marca, ...props }) {
++  return (
++    <group {...props}>
++      <mesh rotation={[0, 0, -0.12]}>
++        <boxGeometry args={[tamanho, tamanho * 0.6, tamanho * 0.52]} />
++        <Mat cor={cor} emissiva={cor} brilho={0.18} aspereza={0.36} metal={0.3} />
++      </mesh>
++      <mesh position={[0, tamanho * 0.12, 0]} rotation={[0, 0, -0.12]}>
++        <boxGeometry args={[tamanho * 0.88, tamanho * 0.42, tamanho * 0.44]} />
++        <Mat cor={PALETA.tinta2} aspereza={0.5} metal={0.2} />
++      </mesh>
++      <mesh position={[-tamanho * 0.62, tamanho * 0.44, 0]} rotation={[0, 0, 0.55]}>
++        <cylinderGeometry args={[tamanho * 0.035, tamanho * 0.035, tamanho * 0.62, 10]} />
++        <Mat cor={PALETA.neutro} aspereza={0.4} metal={0.4} />
++      </mesh>
++      {[-0.28, 0.28].map((x) => (
++        <mesh
++          key={x}
++          position={[tamanho * x, -tamanho * 0.44, 0]}
++          rotation={[Math.PI / 2, 0, 0]}
++        >
++          <cylinderGeometry args={[tamanho * 0.11, tamanho * 0.11, tamanho * 0.09, 18]} />
++          <Mat cor={PALETA.tinta3} aspereza={0.45} metal={0.3} />
++        </mesh>
++      ))}
++    </group>
++  );
++}
++
++/** Funil de vendas: três anéis decrescentes. */
++export function Funil({ tamanho = 0.9, ...props }) {
++  const niveis = [
++    { r: tamanho * 0.5, y: tamanho * 0.3, cor: PALETA.apoio },
++    { r: tamanho * 0.36, y: 0, cor: PALETA.marcaClara },
++    { r: tamanho * 0.22, y: -tamanho * 0.28, cor: PALETA.marca },
++  ];
++  return (
++    <group {...props}>
++      {niveis.map((n, i) => (
++        <mesh key={i} position={[0, n.y, 0]}>
++          <cylinderGeometry args={[n.r, n.r * 0.78, tamanho * 0.2, 30, 1, true]} />
++          <meshStandardMaterial
++            color={n.cor}
++            emissive={n.cor}
++            emissiveIntensity={0.3}
++            transparent
++            opacity={1}
++            roughness={0.32}
++            metalness={0.28}
++            side={THREE.DoubleSide}
++          />
++        </mesh>
++      ))}
++    </group>
++  );
++}
+diff --git a/frontend/src/data/landing.js b/frontend/src/data/landing.js
+new file mode 100644
+index 0000000..ed90d90
+--- /dev/null
++++ b/frontend/src/data/landing.js
+@@ -0,0 +1,348 @@
++/**
++ * Conteúdo da página pública.
++ *
++ * Regra que guiou cada texto daqui: só entra o que a API realmente entrega
++ * hoje (`backend/app.py` + `backend/erp.py`). Nada de recurso "previsto",
++ * certificação inventada ou número de clientes que não existe.
++ *
++ * Onde o sistema faz menos do que o nome sugere, o texto diz isso — é o caso
++ * do registro de notas (controle interno, sem transmissão à SEFAZ) e dos
++ * avisos por WhatsApp (dependem de um provedor configurado pelo administrador).
++ */
++
++/* -------------------------------------------------- indicadores do hero */
++
++export const INDICADORES = [
++  { valor: 8, sufixo: "", rotulo: "módulos integrados" },
++  { valor: 90, sufixo: " dias", rotulo: "de caixa projetado" },
++  { valor: 6, sufixo: " meses", rotulo: "de DRE mês a mês" },
++  { valor: 0, sufixo: "", rotulo: "planilha necessária" },
++];
++
++/* ------------------------------------------------------ visão geral */
++
++export const PILARES = [
++  {
++    icone: "cart",
++    titulo: "A operação",
++    texto:
++      "Venda, estoque, clientes e notas conversando entre si — um registro alimenta o outro.",
++  },
++  {
++    icone: "wallet",
++    titulo: "O dinheiro",
++    texto:
++      "Contas a receber, contas a pagar, fluxo de caixa projetado e DRE calculados a partir do que já foi lançado.",
++  },
++  {
++    icone: "robot",
++    titulo: "A leitura",
++    texto:
++      "Um assistente que responde em português sobre os seus próprios números e um radar que procura o problema antes de você.",
++  },
++];
++
++/* ------------------------------------------- seções de funcionalidade */
++
++export const FUNCIONALIDADES = [
++  {
++    id: "financeiro",
++    chave3d: "financeiro",
++    icone: "wallet",
++    sobretitulo: "Controle financeiro",
++    titulo: "Saiba exatamente para onde o dinheiro da empresa está indo.",
++    frase: "Contas a receber, contas a pagar e o saldo dos próximos meses na mesma tela.",
++    texto:
++      "Cada venda a prazo vira parcela com vencimento; cada despesa entra classificada como fixa ou variável. A partir daí o sistema calcula sozinho o que entra, o que sai e o que sobra — sem você refazer conta em planilha.",
++    beneficios: [
++      "Contas a receber e a pagar com baixa por lançamento",
++      "Marcação automática do que já venceu",
++      "Fluxo de caixa projetado para até 365 dias",
++      "DRE mês a mês com receita, custo, despesas e lucro líquido",
++    ],
++    cta: { texto: "Ver o financeiro por dentro", para: "/cadastro" },
++  },
++  {
++    id: "vendas",
++    chave3d: "vendas",
++    icone: "cart",
++    sobretitulo: "Vendas e PDV",
++    titulo: "Registre a venda em segundos e deixe o resto acontecer sozinho.",
++    frase: "Uma tela de venda que já resolve estoque, cliente e recebimento.",
++    texto:
++      "Você escolhe os produtos, a forma de pagamento e o desconto. O sistema dá baixa no estoque, atualiza a ficha do cliente, gera a parcela em contas a receber e calcula a margem daquela venda no mesmo instante.",
++    beneficios: [
++      "Venda com vários itens, desconto e observação",
++      "Formas de pagamento à vista e a prazo",
++      "Lucro por venda calculado com o custo do produto",
++      "Cancelamento que estorna estoque e recebimento",
++    ],
++    inverter: true,
++  },
++  {
++    id: "clientes",
++    chave3d: "clientes",
++    icone: "users",
++    sobretitulo: "Clientes",
++    titulo: "A carteira inteira, com quem está comprando e quem sumiu.",
++    frase: "Relacionamento medido por dado, não por memória.",
++    texto:
++      "Cada cliente carrega o histórico de compras, o valor acumulado e há quantos dias não volta. O sistema classifica quem está ativo e sinaliza quem passou do prazo típico de recompra, para você agir antes de perder a conta.",
++    beneficios: [
++      "Valor acumulado por cliente, atualizado a cada venda",
++      "Dias desde a última compra e status de atividade",
++      "Lista de clientes inativos pronta para reativação",
++      "Histórico ligado às vendas e às notas emitidas",
++    ],
++  },
++  {
++    id: "estoque",
++    chave3d: "estoque",
++    icone: "box",
++    sobretitulo: "Estoque e produtos",
++    titulo: "Saber o que tem, o que falta e o que está preso em prateleira.",
++    frase: "O saldo se move junto com a venda, não no fim do mês.",
++    texto:
++      "Produto tem preço, custo, saldo e ponto mínimo. A venda desconta o saldo na hora e a tentativa de vender além do disponível é bloqueada. Quando um item cruza o mínimo, ele entra na lista de reposição do painel.",
++    beneficios: [
++      "Baixa automática de estoque a cada venda",
++      "Bloqueio de venda acima do saldo disponível",
++      "Ponto mínimo por produto com alerta de reposição",
++      "Preço e custo por item para calcular margem real",
++    ],
++    inverter: true,
++  },
++  {
++    id: "relatorios",
++    chave3d: "relatorios",
++    icone: "gauge",
++    sobretitulo: "Relatórios e indicadores",
++    titulo: "Os números do mês prontos, sem montar relatório.",
++    frase: "Receita, lucro, despesa e tendência calculados sobre o que você já lançou.",
++    texto:
++      "O painel consolida receita, lucro bruto, despesas e lucro líquido dos últimos 30 dias, compara as duas últimas semanas para mostrar a tendência e acompanha o progresso em relação à meta do mês.",
++    beneficios: [
++      "Receita, lucro e despesas dos últimos 30 dias",
++      "Tendência de vendas comparando semanas",
++      "DRE com margem calculada por mês",
++      "Curva diária de receita e de pedidos",
++    ],
++  },
++  {
++    id: "agenda",
++    chave3d: "agenda",
++    icone: "calendar",
++    sobretitulo: "Agenda de vencimentos",
++    titulo: "O que vence esta semana aparece antes de virar problema.",
++    frase: "Uma agenda financeira que se monta sozinha a partir dos lançamentos.",
++    texto:
++      "Todo título a receber ou a pagar tem data de vencimento. O sistema separa o que cai nos próximos sete dias, marca o que já passou do prazo e projeta a curva de saldo à frente, para você enxergar o aperto com antecedência.",
++    beneficios: [
++      "Totais a receber e a pagar da semana",
++      "Identificação automática de títulos vencidos",
++      "Projeção de saldo dia a dia",
++      "Despesas fixas separadas das variáveis",
++    ],
++    inverter: true,
++  },
++  {
++    id: "automacao",
++    chave3d: "automacao",
++    icone: "refresh",
++    sobretitulo: "Rotinas automáticas",
++    titulo: "Um lançamento, várias consequências — sem retrabalho.",
++    frase: "O sistema encadeia o que hoje você faz em três lugares diferentes.",
++    texto:
++      "Fechar uma venda move estoque, cliente, contas a receber e indicadores de uma vez só. Em paralelo, o radar varre os dados procurando queda de vendas, estoque no limite, cliente parado e título vencido, e transforma isso em alerta.",
++    beneficios: [
++      "Venda que alimenta estoque, cliente e financeiro",
++      "Radar de alertas por severidade e categoria",
++      "Assistente de IA que responde sobre os seus dados reais",
++      "Avisos por WhatsApp quando um provedor está configurado",
++    ],
++  },
++  {
++    id: "documentos",
++    chave3d: "documentos",
++    icone: "invoice",
++    sobretitulo: "Documentos e notas",
++    titulo: "O registro das notas ligado à venda que deu origem a ela.",
++    frase: "Numeração sequencial, valor, cliente e situação em um histórico só.",
++    texto:
++      "A nota é gerada a partir da venda, recebe número sequencial por empresa e fica com status de emitida ou cancelada. É o controle interno das notas da operação — a transmissão ao SEFAZ continua sendo feita no emissor que você já usa.",
++    beneficios: [
++      "Nota vinculada à venda, ao cliente e ao valor",
++      "Numeração sequencial por empresa",
++      "Cancelamento com registro da situação",
++      "Total emitido no mês somado no painel",
++    ],
++    inverter: true,
++  },
++];
++
++/* ------------------------------------------------------ como funciona */
++
++export const PASSOS = [
++  {
++    numero: "1",
++    titulo: "Crie sua conta",
++    texto:
++      "Nome, e-mail, senha e os dados básicos da empresa. Leva menos de um minuto e não pede cartão.",
++  },
++  {
++    numero: "2",
++    titulo: "Configure a empresa",
++    texto:
++      "Cadastre produtos e clientes, ou entre na conta de demonstração, que já vem com dados para você navegar por tudo.",
++  },
++  {
++    numero: "3",
++    titulo: "Comece pela tela de vendas",
++    texto:
++      "É onde o dia começa. A partir do primeiro registro, estoque, financeiro e painel passam a se alimentar sozinhos.",
++  },
++];
++
++/* ---------------------------------------------------------- benefícios */
++
++export const BENEFICIOS = [
++  {
++    icone: "clock",
++    titulo: "Economia de tempo",
++    texto:
++      "Um lançamento resolve estoque, cliente e financeiro. Some o retrabalho de digitar a mesma venda três vezes.",
++  },
++  {
++    icone: "gauge",
++    titulo: "Visão centralizada",
++    texto:
++      "Receita, lucro, vencimentos e reposição na mesma tela, calculados sobre a mesma base de dados.",
++  },
++  {
++    icone: "radar",
++    titulo: "Decisões melhores",
++    texto:
++      "Fluxo de caixa projetado e DRE com margem mostram o efeito de uma decisão antes de ela virar prejuízo.",
++  },
++  {
++    icone: "check",
++    titulo: "Organização",
++    texto:
++      "Título com vencimento, produto com custo, cliente com histórico. Nada depende de lembrar onde ficou o papel.",
++  },
++  {
++    icone: "bolt",
++    titulo: "Facilidade de uso",
++    texto:
++      "Telas curtas, linguagem de negócio e um assistente que aceita pergunta em português comum.",
++  },
++  {
++    icone: "link",
++    titulo: "Acesso de qualquer lugar",
++    texto:
++      "Roda no navegador do computador e do celular, com a mesma conta e os mesmos dados.",
++  },
++];
++
++/* ------------------------------------------------------------ para quem */
++
++export const PUBLICO = [
++  {
++    icone: "cart",
++    titulo: "Comércio e varejo",
++    texto: "Quem vende produto, controla saldo e precisa saber a margem de cada item.",
++  },
++  {
++    icone: "users",
++    titulo: "Prestadores de serviço",
++    texto: "Quem fatura por contrato ou por hora e acompanha recebimento a prazo.",
++  },
++  {
++    icone: "bolt",
++    titulo: "Profissionais autônomos",
++    texto: "Quem faz tudo sozinho e não tem tempo de manter três planilhas em dia.",
++  },
++  {
++    icone: "target",
++    titulo: "Empreendedores",
++    texto: "Quem está começando e quer nascer com o financeiro organizado.",
++  },
++  {
++    icone: "doc",
++    titulo: "Escritórios e consultorias",
++    texto: "Quem precisa de DRE e histórico limpo para conversar com o contador.",
++  },
++  {
++    icone: "trendUp",
++    titulo: "Negócios em crescimento",
++    texto: "Quem passou do ponto em que dá para tocar a empresa de cabeça.",
++  },
++];
++
++/* ------------------------------------------------------------ segurança */
++
++export const SEGURANCA = [
++  {
++    icone: "shield",
++    titulo: "Senha nunca guardada em texto",
++    texto:
++      "A senha é transformada por PBKDF2-SHA256 com 200.000 iterações e sal próprio por usuário. O sistema não tem como ler a sua senha.",
++  },
++  {
++    icone: "users",
++    titulo: "Dados isolados por conta",
++    texto:
++      "Produto, venda, cliente, título e nota carregam o identificador do dono. Toda consulta filtra por usuário autenticado.",
++  },
++  {
++    icone: "link",
++    titulo: "Integração com token criptografado",
++    texto:
++      "Ao conectar a Conta Azul, os tokens de acesso e de renovação são gravados criptografados, e o parâmetro de estado do OAuth é assinado e de uso único.",
++  },
++];
++
++/* ------------------------------------------------------------------ FAQ */
++
++export const PERGUNTAS = [
++  {
++    pergunta: "Preciso instalar alguma coisa?",
++    resposta:
++      "Não. O Sócio Digital roda no navegador, no computador ou no celular. Você entra com e-mail e senha e os dados ficam disponíveis nos dois.",
++  },
++  {
++    pergunta: "Dá para testar antes de cadastrar minha empresa?",
++    resposta:
++      "Sim. Existe uma conta de demonstração já preenchida com produtos, clientes, vendas, títulos e notas, para você navegar por todas as telas antes de lançar qualquer dado real.",
++  },
++  {
++    pergunta: "O sistema emite nota fiscal para a SEFAZ?",
++    resposta:
++      "Não. O que existe é o registro interno das notas: número sequencial, cliente, valor, vínculo com a venda e situação (emitida ou cancelada). A transmissão continua sendo feita pelo emissor que você já usa.",
++  },
++  {
++    pergunta: "Como o assistente de IA responde sobre a minha empresa?",
++    resposta:
++      "Ele monta a resposta a partir do seu próprio painel: receita, lucro, despesas, estoque abaixo do mínimo e clientes inativos. Quando não há chave de IA configurada, o sistema responde com um resumo local calculado sobre os mesmos números.",
++  },
++  {
++    pergunta: "Os avisos por WhatsApp funcionam desde o primeiro dia?",
++    resposta:
++      "O envio real depende de um provedor de WhatsApp configurado pelo administrador da instalação. Sem essa configuração, as mensagens ficam registradas no histórico dentro do sistema, mas não saem para o celular.",
++  },
++  {
++    pergunta: "Consigo trazer o financeiro da Conta Azul?",
++    resposta:
++      "Sim, por OAuth. Depois de conectar, o sistema importa contas a pagar e a receber por faixa de vencimento e guarda a data da última sincronização.",
++  },
++  {
++    pergunta: "O que acontece se eu cancelar uma venda?",
++    resposta:
++      "O cancelamento devolve a quantidade ao estoque e desfaz o recebimento gerado por ela, mantendo a venda no histórico com a situação de cancelada.",
++  },
++  {
++    pergunta: "Quanto custa?",
++    resposta:
++      "A criação de conta é gratuita e não pede cartão. Os planos comerciais ainda estão sendo definidos e serão comunicados aqui antes de qualquer cobrança.",
++  },
++];
+diff --git a/frontend/src/pages/Landing.jsx b/frontend/src/pages/Landing.jsx
+index 0cb99e4..0e3f41d 100644
+--- a/frontend/src/pages/Landing.jsx
++++ b/frontend/src/pages/Landing.jsx
+@@ -1,166 +1,46 @@
+-import { lazy, Suspense, useRef } from "react";
++import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+ import { Link } from "react-router-dom";
+ import Icon from "@/components/Icons";
++import Cabecalho from "@/components/landing/Cabecalho";
++import Rodape from "@/components/landing/Rodape";
++import Slot3D from "@/components/landing/Slot3D";
++import {
++  AudienceCard,
++  BenefitCard,
++  CTASection,
++  FAQ,
++  FeatureSection,
++  Revelar,
++  SectionHeader,
++  StepCard,
++} from "@/components/landing/Blocos";
++import { temWebGL } from "@/components/landing/palco";
++import {
++  BENEFICIOS,
++  FUNCIONALIDADES,
++  INDICADORES,
++  PASSOS,
++  PERGUNTAS,
++  PILARES,
++  PUBLICO,
++  SEGURANCA,
++} from "@/data/landing";
+ import { useContador, useRevelar } from "@/lib/animacoes";
++import "@/styles/landing.css";
+ 
+ /**
+- * A cena 3D carrega em um chunk separado (three.js é pesado). Enquanto ela
+- * não chega, o hero exibe o fundo em degradê — nada quebra sem ela.
++ * O palco 3D (three.js + React Three Fiber) sai em um chunk separado e só é
++ * baixado quando o dispositivo tem WebGL. Em quem não tem, a página cai no
++ * fallback em CSS dos próprios slots e nem chega a pedir o arquivo.
+  */
+-const Scene3D = lazy(() => import("@/components/Scene3D"));
++const Palco3D = lazy(() => import("@/components/landing/Palco3D"));
+ 
+-/**
+- * As 12 funcionalidades exibidas ao visitante. Cada uma recebe uma cor
+- * própria — a versão anterior mostrava tudo em cartões brancos iguais.
+- */
+-const FUNCIONALIDADES = [
+-  {
+-    tone: "emerald",
+-    icon: "cart",
+-    titulo: "Frente de vendas (PDV)",
+-    texto:
+-      "Registre a venda em segundos: escolhe o produto, a forma de pagamento e pronto. O estoque baixa sozinho e o recebimento já entra no financeiro.",
+-    tag: "Módulo principal",
+-  },
+-  {
+-    tone: "blue",
+-    icon: "wallet",
+-    titulo: "Contas a receber",
+-    texto:
+-      "Cada venda a prazo vira parcela com vencimento. Você vê quem deve, quanto e quando — e dá baixa com um clique quando o dinheiro cai.",
+-    tag: "Financeiro",
+-  },
+-  {
+-    tone: "rose",
+-    icon: "arrowUpRight",
+-    titulo: "Contas a pagar",
+-    texto:
+-      "Aluguel, folha, fornecedor e imposto em uma agenda só. Despesas fixas se repetem automaticamente e o sistema avisa antes de vencer.",
+-    tag: "Financeiro",
+-  },
+-  {
+-    tone: "violet",
+-    icon: "bank",
+-    titulo: "Fluxo de caixa projetado",
+-    texto:
+-      "A curva do saldo dos próximos 90 dias, já considerando o que entra e o que sai. Se o caixa vai ficar negativo, o dia aparece marcado.",
+-    tag: "Previsão",
+-  },
+-  {
+-    tone: "amber",
+-    icon: "invoice",
+-    titulo: "Notas fiscais",
+-    texto:
+-      "Emita NF-e e NFS-e a partir da venda, com numeração sequencial, chave de acesso e histórico completo para o contador.",
+-    tag: "Fiscal",
+-  },
+-  {
+-    tone: "cyan",
+-    icon: "box",
+-    titulo: "Estoque inteligente",
+-    texto:
+-      "Saldo por produto, ponto de reposição e curva ABC. A IA aponta o que está parado, o que vai faltar e o que merece promoção.",
+-    tag: "Operação",
+-  },
+-  {
+-    tone: "teal",
+-    icon: "users",
+-    titulo: "Carteira de clientes",
+-    texto:
+-      "Histórico de compras, valor acumulado e tempo desde a última venda. O radar avisa quando um bom cliente some.",
+-    tag: "Relacionamento",
+-  },
+-  {
+-    tone: "midnight",
+-    icon: "doc",
+-    titulo: "DRE e relatórios",
+-    texto:
+-      "Receita, custo da mercadoria, despesas e lucro líquido mês a mês, com margem calculada. Sem montar planilha.",
+-    tag: "Gestão",
+-  },
+-  {
+-    tone: "emerald",
+-    icon: "robot",
+-    titulo: "Sócio de IA",
+-    texto:
+-      "Pergunte em português: “como foi a semana?”, “posso pagar o fornecedor agora?”. A resposta usa os dados reais da sua empresa.",
+-    tag: "Diferencial",
+-  },
+-  {
+-    tone: "blue",
+-    icon: "whatsapp",
+-    titulo: "Avisos no WhatsApp",
+-    texto:
+-      "Resumo diário e alertas imediatos direto no celular. Você não precisa abrir o sistema para saber que algo saiu do lugar.",
+-    tag: "Diferencial",
+-  },
+-  {
+-    tone: "violet",
+-    icon: "radar",
+-    titulo: "Radar de problemas",
+-    texto:
+-      "Queda de vendas, estoque no limite, cliente inativo, título vencido: o sistema procura o problema antes de você.",
+-    tag: "Diferencial",
+-  },
+-  {
+-    tone: "slate",
+-    icon: "link",
+-    titulo: "Integrações",
+-    texto:
+-      "Conexão com a Conta Azul via OAuth para importar o financeiro, além de webhooks para plugar outros sistemas que você já usa.",
+-    tag: "Conectado",
+-  },
+-];
+-
+-const MODULOS = [
+-  { icon: "cart", cor: "linear-gradient(135deg,#059669,#10b981)", nome: "Vendas", desc: "PDV, pedidos, formas de pagamento e parcelamento." },
+-  { icon: "wallet", cor: "linear-gradient(135deg,#1d4ed8,#3b82f6)", nome: "Financeiro", desc: "Receber, pagar, fluxo de caixa e DRE." },
+-  { icon: "invoice", cor: "linear-gradient(135deg,#b45309,#f59e0b)", nome: "Fiscal", desc: "NF-e e NFS-e com histórico e cancelamento." },
+-  { icon: "box", cor: "linear-gradient(135deg,#0e7490,#06b6d4)", nome: "Estoque", desc: "Saldo, custo, reposição e produtos parados." },
+-  { icon: "users", cor: "linear-gradient(135deg,#0d9488,#14b8a6)", nome: "Clientes", desc: "Carteira, recorrência e clientes em risco." },
+-  { icon: "gauge", cor: "linear-gradient(135deg,#6d28d9,#a855f7)", nome: "Painel", desc: "Indicadores do mês, metas e projeção." },
+-  { icon: "robot", cor: "linear-gradient(135deg,#0a1128,#1e3a8a)", nome: "Assistente", desc: "Conversa com IA sobre os seus números." },
+-  { icon: "gear", cor: "linear-gradient(135deg,#334155,#64748b)", nome: "Configurações", desc: "Empresa, avisos e integrações." },
+-];
+-
+-const DORES = [
+-  ["Queda nas vendas sem aviso", "Radar acompanha e avisa no mesmo dia"],
+-  ["Não saber o lucro real", "Lucro por venda e DRE em tempo real"],
+-  ["Descobrir o problema no fim do mês", "Monitoramento contínuo, alerta imediato"],
+-  ["Estoque acaba na hora errada", "Previsão de ruptura por produto"],
+-  ["Cliente bom que parou de comprar", "Radar de clientes inativos"],
+-  ["Relatório demais, resposta de menos", "Pergunta em linguagem natural"],
+-];
+-
+-const METRICAS = [
+-  { valor: 8, sufixo: "", rotulo: "módulos integrados" },
+-  { valor: 90, sufixo: " dias", rotulo: "de caixa projetado" },
+-  { valor: 24, sufixo: "/7", rotulo: "radar monitorando" },
+-  { valor: 0, sufixo: "", rotulo: "planilha necessária" },
+-];
+-
+-/* ---------------------------------------------------------- auxiliares */
+-
+-/** Envolve um bloco com a animação de entrada por rolagem. */
+-function Revelar({ children, atraso = 0, variante = "sobe", className = "" }) {
+-  const [ref, visivel] = useRevelar();
+-  return (
+-    <div
+-      ref={ref}
+-      className={`revelar revelar-${variante} ${visivel ? "visivel" : ""} ${className}`}
+-      style={{ transitionDelay: `${atraso}ms` }}
+-    >
+-      {children}
+-    </div>
+-  );
+-}
+-
+-/** Número do hero que sobe de 0 até o valor final quando entra na tela. */
+-function Metrica({ valor, sufixo, rotulo }) {
++/** Indicador do hero: o número sobe de zero quando entra na tela. */
++function Indicador({ valor, sufixo, rotulo }) {
+   const [ref, visivel] = useRevelar();
+   const atual = useContador(valor, { ativo: visivel });
+   return (
+-    <div className="lp-metric" ref={ref}>
++    <div className="lp-indicador" ref={ref}>
+       <b className="num">
+         {Math.round(atual)}
+         {sufixo}
+@@ -170,203 +50,310 @@ function Metrica({ valor, sufixo, rotulo }) {
+   );
+ }
+ 
+-/* -------------------------------------------------------------- página */
+-
+ export default function Landing() {
+-  const hero = useRef(null);
++  const [ativo3d, setAtivo3d] = useState(false);
++  const [montado, setMontado] = useState(false);
++
++  useEffect(() => {
++    setAtivo3d(temWebGL());
++    setMontado(true);
++  }, []);
++
++  // Rolagem suave nas âncoras do menu.
++  useEffect(() => {
++    const anterior = document.documentElement.style.scrollBehavior;
++    document.documentElement.style.scrollBehavior = "smooth";
++    return () => {
++      document.documentElement.style.scrollBehavior = anterior;
++    };
++  }, []);
++
++  const classes = useMemo(
++    () => `lp-root ${montado && !ativo3d ? "sem-3d" : ""}`,
++    [montado, ativo3d]
++  );
+ 
+   return (
+-    <div className="lp-root">
+-      {/* A cena 3D fica fixa atrás do conteúdo do topo. */}
+-      <Suspense fallback={<div className="cena3d-fallback" aria-hidden="true" />}>
+-        <Scene3D alvoRolagem={hero} />
+-      </Suspense>
++    <div className={classes}>
++      {ativo3d ? (
++        <Suspense fallback={null}>
++          <Palco3D />
++        </Suspense>
++      ) : null}
+ 
+-      <nav className="lp-nav">
+-        <div className="row" style={{ gap: 9 }}>
+-          <span
+-            style={{
+-              width: 32, height: 32, borderRadius: 9,
+-              background: "linear-gradient(135deg,#10b981,#3b82f6)",
+-              display: "grid", placeItems: "center", color: "#04122a",
+-              fontWeight: 700, fontFamily: "Outfit, sans-serif",
+-            }}
+-          >
+-            SD
+-          </span>
+-          <b style={{ fontFamily: "Outfit, sans-serif" }}>Sócio Digital</b>
+-        </div>
+-        <div className="spacer" />
+-        <Link to="/login" className="btn btn-ghost btn-sm">Entrar</Link>
+-        <Link to="/cadastro" className="btn btn-primary btn-sm">Criar conta grátis</Link>
+-      </nav>
++      <Cabecalho />
+ 
+-      {/* ------------------------------------------------------------ hero */}
+-      <header className="lp-hero lp-hero-3d" ref={hero}>
++      {/* ---------------------------------------------------------- hero */}
++      <section className="lp-hero">
+         <div className="lp-wrap">
+-          <div className="lp-hero-texto">
+-            <Revelar variante="fade">
+-              <span className="lp-pill">
+-                <Icon name="sparkles" size={14} /> ERP completo + assistente de IA
+-              </span>
+-            </Revelar>
++          <div className="lp-hero-grade">
++            <div className="lp-hero-texto">
++              <Revelar variante="fade">
++                <span className="lp-selo">
++                  <Icon name="sparkles" size={14} /> Gestão + assistente executivo de IA
++                </span>
++              </Revelar>
+ 
+-            <Revelar atraso={90}>
+-              <h1>
+-                Um ERP que faz a gestão <em>e um sócio que avisa</em> quando algo sai do lugar.
+-              </h1>
+-            </Revelar>
++              <Revelar atraso={80}>
++                <h1>
++                  Um sistema que organiza a empresa <em>e um sócio que avisa</em> quando
++                  algo sai do lugar.
++                </h1>
++              </Revelar>
+ 
+-            <Revelar atraso={180}>
+-              <p className="lead">
+-                Vendas, contas a receber, contas a pagar, notas fiscais, estoque e fluxo de caixa
+-                em um só lugar — com uma IA que lê os seus números todos os dias e fala com você
+-                em português.
+-              </p>
+-            </Revelar>
++              <Revelar atraso={150}>
++                <p className="lp-lead">
++                  Vendas, contas a receber, contas a pagar, estoque, clientes e fluxo de
++                  caixa em um lugar só — com uma IA que lê os seus números e fala com
++                  você em português.
++                </p>
++              </Revelar>
+ 
+-            <Revelar atraso={260}>
+-              <div className="row row-wrap" style={{ gap: 11 }}>
+-                <Link to="/cadastro" className="btn btn-primary btn-lg">
+-                  <Icon name="bolt" size={17} /> Começar agora
+-                </Link>
+-                <Link
+-                  to="/login"
+-                  className="btn btn-ghost btn-lg"
+-                  style={{ background: "rgba(255,255,255,.1)", color: "#fff", borderColor: "rgba(255,255,255,.28)" }}
+-                >
+-                  Ver demonstração
+-                </Link>
+-              </div>
++              <Revelar atraso={220}>
++                <div className="lp-botoes">
++                  <Link to="/cadastro" className="lp-btn lp-btn-principal lp-btn-lg">
++                    <Icon name="bolt" size={17} /> Criar conta grátis
++                  </Link>
++                  <Link to="/login" className="lp-btn lp-btn-vidro lp-btn-lg">
++                    Ver a demonstração
++                  </Link>
++                </div>
++              </Revelar>
++
++              <Revelar atraso={280}>
++                <ul className="lp-confianca">
++                  <li>
++                    <Icon name="check" size={14} /> Sem cartão de crédito
++                  </li>
++                  <li>
++                    <Icon name="check" size={14} /> Conta de demonstração pronta
++                  </li>
++                  <li>
++                    <Icon name="check" size={14} /> Funciona no celular
++                  </li>
++                </ul>
++              </Revelar>
++            </div>
++
++            <Revelar variante="escala" atraso={120} className="lp-hero-visual">
++              <Slot3D chave="hero" icone="gauge" altura="alta" />
+             </Revelar>
+           </div>
+ 
+-          <div className="lp-metrics">
+-            {METRICAS.map((m) => (
+-              <Metrica key={m.rotulo} valor={m.valor} sufixo={m.sufixo} rotulo={m.rotulo} />
++          <div className="lp-indicadores">
++            {INDICADORES.map((m) => (
++              <Indicador key={m.rotulo} valor={m.valor} sufixo={m.sufixo} rotulo={m.rotulo} />
+             ))}
+           </div>
++        </div>
++
++        <span className="lp-dica-rolagem" aria-hidden="true">
++          <i />
++        </span>
++      </section>
+ 
+-          <div className="lp-scroll-dica" aria-hidden="true">
+-            <span>role para explorar</span>
+-            <i />
++      {/* ------------------------------------------------- visão geral */}
++      <section id="funcionalidades" className="lp-secao fundo-claro">
++        <div className="lp-wrap">
++          <SectionHeader
++            centralizado
++            sobretitulo="A plataforma"
++            titulo="Tudo que a sua empresa precisa em um só lugar"
++            texto="Três camadas que trabalham sobre a mesma base de dados: o que você faz no dia, o dinheiro que isso movimenta e a leitura de negócio em cima dos dois."
++          />
++          <div className="lp-pilares">
++            {PILARES.map((p, i) => (
++              <Revelar key={p.titulo} atraso={i * 90} variante="escala">
++                <article className="lp-pilar">
++                  <span className="lp-pilar-icone">
++                    <Icon name={p.icone} size={20} />
++                  </span>
++                  <h3>{p.titulo}</h3>
++                  <p>{p.texto}</p>
++                </article>
++              </Revelar>
++            ))}
+           </div>
+         </div>
+-      </header>
++      </section>
++
++      {/* -------------------------------- funcionalidades em seções */}
++      {FUNCIONALIDADES.map((f, i) => (
++        <FeatureSection key={f.id} {...f} fundo={i % 2 === 0 ? "neutro" : "claro"} />
++      ))}
+ 
+-      {/* --------------------------------------------- funcionalidades */}
+-      <section className="lp-section tinted">
++      {/* ------------------------------------------------------ painel */}
++      <section id="painel" className="lp-secao fundo-tinta lp-painel-secao">
+         <div className="lp-wrap">
+-          <Revelar>
+-            <div className="lp-eyebrow">Funcionalidades</div>
+-            <h2 className="lp-h2">Tudo o que um ERP precisa ter — e o que nenhum deles faz</h2>
+-            <p className="lp-sub">
+-              As primeiras oito colunas você reconhece de qualquer sistema de gestão. As quatro
+-              últimas são o motivo de o Sócio Digital existir.
+-            </p>
+-          </Revelar>
++          <div className="lp-feature-grade invertida">
++            <div className="lp-feature-texto">
++              <Revelar variante="fade">
++                <div className="lp-sobretitulo">
++                  <Icon name="gauge" size={14} /> Painel geral
++                </div>
++              </Revelar>
++              <Revelar atraso={70}>
++                <h2 className="lp-h2">A empresa inteira em uma tela só.</h2>
++              </Revelar>
++              <Revelar atraso={130}>
++                <p className="lp-texto">
++                  O painel junta o que os módulos produziram: receita e lucro do período,
++                  tendência das últimas semanas, progresso da meta, total a receber e a
++                  pagar da semana, títulos vencidos e produtos abaixo do mínimo. É a
++                  primeira tela para quem quer saber, em trinta segundos, se o mês está
++                  de pé.
++                </p>
++              </Revelar>
++              <Revelar atraso={190}>
++                <ul className="lp-beneficios">
++                  <li>
++                    <Icon name="check" size={15} />
++                    <span>Receita, lucro bruto e lucro líquido do período</span>
++                  </li>
++                  <li>
++                    <Icon name="check" size={15} />
++                    <span>Curva diária de receita e de pedidos</span>
++                  </li>
++                  <li>
++                    <Icon name="check" size={15} />
++                    <span>Vencimentos da semana e títulos em atraso</span>
++                  </li>
++                  <li>
++                    <Icon name="check" size={15} />
++                    <span>Reposição de estoque e clientes inativos</span>
++                  </li>
++                </ul>
++              </Revelar>
++            </div>
+ 
+-          <div className="feat-grid">
+-            {FUNCIONALIDADES.map((f, i) => (
+-              <Revelar key={f.titulo} atraso={(i % 3) * 90}>
+-                <article className={`feat f-${f.tone}`}>
+-                  <span className="fi"><Icon name={f.icon} size={20} /></span>
+-                  <h4>{f.titulo}</h4>
+-                  <p>{f.texto}</p>
+-                  <span className="tag">{f.tag}</span>
+-                </article>
++            <Revelar variante="escala" atraso={120} className="lp-feature-visual">
++              <Slot3D chave="dashboard" icone="gauge" altura="media" />
++            </Revelar>
++          </div>
++        </div>
++      </section>
++
++      {/* ------------------------------------------------ como funciona */}
++      <section id="como-funciona" className="lp-secao fundo-claro">
++        <div className="lp-wrap">
++          <SectionHeader
++            centralizado
++            sobretitulo="Como funciona"
++            titulo="Três passos até o primeiro número no painel"
++            texto="Nenhum deles exige consultor, migração de planilha ou treinamento."
++          />
++          <div className="lp-passos">
++            {PASSOS.map((p, i) => (
++              <Revelar key={p.numero} atraso={i * 110}>
++                <StepCard {...p} />
+               </Revelar>
+             ))}
+           </div>
+         </div>
+       </section>
+ 
+-      {/* ------------------------------------------------------ módulos */}
+-      <section className="lp-section white">
++      {/* --------------------------------------------------- benefícios */}
++      <section id="beneficios" className="lp-secao fundo-neutro">
+         <div className="lp-wrap">
+-          <Revelar>
+-            <div className="lp-eyebrow">Módulos</div>
+-            <h2 className="lp-h2">Oito áreas, um sistema só</h2>
+-            <p className="lp-sub">
+-              Você entra pela tela de vendas — que é onde o dia começa — e o resto do sistema é
+-              alimentado automaticamente a partir dali.
+-            </p>
+-          </Revelar>
+-          <div className="mod-grid">
+-            {MODULOS.map((m, i) => (
+-              <Revelar key={m.nome} atraso={(i % 4) * 70} variante="escala">
+-                <div className="mod">
+-                  <span className="mi" style={{ background: m.cor }}><Icon name={m.icon} size={17} /></span>
+-                  <b>{m.nome}</b>
+-                  <span>{m.desc}</span>
+-                </div>
++          <SectionHeader
++            centralizado
++            sobretitulo="Benefícios"
++            titulo="O que muda na rotina de quem toca o negócio"
++          />
++          <div className="lp-beneficios-grade">
++            {BENEFICIOS.map((b, i) => (
++              <Revelar key={b.titulo} atraso={(i % 3) * 90} variante="escala">
++                <BenefitCard {...b} />
+               </Revelar>
+             ))}
+           </div>
+         </div>
+       </section>
+ 
+-      {/* --------------------------------------------------------- dores */}
+-      <section className="lp-section tinted">
++      {/* ----------------------------------------------------- para quem */}
++      <section id="para-quem" className="lp-secao fundo-claro">
+         <div className="lp-wrap">
+-          <Revelar>
+-            <div className="lp-eyebrow">O problema real</div>
+-            <h2 className="lp-h2">O empresário não precisa de mais relatório. Precisa de aviso.</h2>
+-          </Revelar>
+-          <Revelar atraso={120}>
+-            <table className="cmp-table">
+-              <thead>
+-                <tr>
+-                  <th style={{ width: "45%" }}>A dor do dia a dia</th>
+-                  <th className="hi">Como o Sócio Digital resolve</th>
+-                </tr>
+-              </thead>
+-              <tbody>
+-                {DORES.map(([dor, solucao]) => (
+-                  <tr key={dor}>
+-                    <td>{dor}</td>
+-                    <td className="hi">{solucao}</td>
+-                  </tr>
+-                ))}
+-              </tbody>
+-            </table>
+-          </Revelar>
++          <SectionHeader
++            centralizado
++            sobretitulo="Para quem é"
++            titulo="Feito para empresa pequena de verdade"
++            texto="Quem tem uma equipe de gestão dedicada já tem ERP. O Sócio Digital é para quem acumula a operação e a decisão na mesma pessoa."
++          />
++          <div className="lp-publicos">
++            {PUBLICO.map((p, i) => (
++              <Revelar key={p.titulo} atraso={(i % 3) * 80}>
++                <AudienceCard {...p} />
++              </Revelar>
++            ))}
++          </div>
+         </div>
+       </section>
+ 
+-      {/* ----------------------------------------------------------- CTA */}
+-      <section className="lp-section white">
++      {/* ------------------------------------------------------ segurança */}
++      <section id="seguranca" className="lp-secao fundo-neutro">
+         <div className="lp-wrap">
+-          <Revelar variante="escala">
+-            <div className="lp-cta">
+-              <h2 style={{ fontSize: 30, maxWidth: 640, lineHeight: 1.16 }}>
+-                Comece pela tela de vendas. O resto o sistema preenche sozinho.
+-              </h2>
+-              <p style={{ color: "#b9c8e6", fontSize: 15.5, maxWidth: 580, margin: "14px 0 24px", lineHeight: 1.6 }}>
+-                Conta de demonstração já vem com produtos, clientes, vendas, títulos e notas para
+-                você navegar por tudo antes de cadastrar a sua empresa.
+-              </p>
+-              <div className="row row-wrap" style={{ gap: 11 }}>
+-                <Link to="/cadastro" className="btn btn-primary btn-lg">Criar conta grátis</Link>
+-                <Link
+-                  to="/login"
+-                  className="btn btn-ghost btn-lg"
+-                  style={{ background: "rgba(255,255,255,.1)", color: "#fff", borderColor: "rgba(255,255,255,.28)" }}
+-                >
+-                  Entrar na demonstração
+-                </Link>
++          <div className="lp-feature-grade">
++            <div className="lp-feature-texto">
++              <Revelar variante="fade">
++                <div className="lp-sobretitulo">
++                  <Icon name="shield" size={14} /> Segurança
++                </div>
++              </Revelar>
++              <Revelar atraso={70}>
++                <h2 className="lp-h2">Os seus dados ficam separados e a sua senha, ilegível.</h2>
++              </Revelar>
++              <Revelar atraso={120}>
++                <p className="lp-texto">
++                  Abaixo está o que o sistema faz hoje, descrito sem eufemismo. Não há
++                  certificação de terceiro a exibir — quando houver, ela aparece aqui.
++                </p>
++              </Revelar>
++
++              <div className="lp-seguranca-lista">
++                {SEGURANCA.map((s, i) => (
++                  <Revelar key={s.titulo} atraso={150 + i * 80}>
++                    <article className="lp-seguranca-item">
++                      <span>
++                        <Icon name={s.icone} size={17} />
++                      </span>
++                      <div>
++                        <h3>{s.titulo}</h3>
++                        <p>{s.texto}</p>
++                      </div>
++                    </article>
++                  </Revelar>
++                ))}
+               </div>
+             </div>
+-          </Revelar>
++
++            <Revelar variante="escala" atraso={120} className="lp-feature-visual">
++              <Slot3D chave="seguranca" icone="shield" altura="media" />
++            </Revelar>
++          </div>
+         </div>
+       </section>
+ 
+-      <footer className="lp-foot">
+-        <div className="lp-wrap row row-wrap">
+-          <span>Sócio Digital — assistente executivo com IA para pequenas empresas.</span>
+-          <span className="spacer">Versão 5.0</span>
++      {/* ------------------------------------------------------------ FAQ */}
++      <section id="faq" className="lp-secao fundo-claro">
++        <div className="lp-wrap lp-wrap-estreito">
++          <SectionHeader
++            centralizado
++            sobretitulo="FAQ"
++            titulo="Perguntas frequentes"
++            texto="As respostas descrevem o sistema como ele está hoje."
++          />
++          <FAQ itens={PERGUNTAS} />
+         </div>
+-      </footer>
++      </section>
++
++      {/* ------------------------------------------------------ CTA final */}
++      <CTASection
++        titulo="Comece pela tela de vendas. O resto o sistema preenche sozinho."
++        texto="Crie a conta em menos de um minuto ou entre na demonstração, que já vem com produtos, clientes, vendas, títulos e notas para você navegar por tudo antes de cadastrar a sua empresa."
++        rodape="Sem cartão de crédito. Sem instalação."
++      />
++
++      <Rodape />
+     </div>
+   );
+ }
+diff --git a/frontend/src/styles.css b/frontend/src/styles.css
+index bd2b030..9a28afc 100644
+--- a/frontend/src/styles.css
++++ b/frontend/src/styles.css
+@@ -499,116 +499,6 @@ td.right, th.right { text-align: right; }
+ }
+ .chip:hover { border-color: var(--blue-2); color: var(--blue); }
+ 
+-/* --------------------------------------------------------------- landing */
+-
+-.lp-nav {
+-  position: sticky; top: 0; z-index: 40;
+-  display: flex; align-items: center; gap: 12px;
+-  padding: 15px 30px;
+-  background: rgba(10, 17, 40, 0.9);
+-  backdrop-filter: blur(10px);
+-  color: #fff;
+-}
+-.lp-hero {
+-  background:
+-    radial-gradient(760px 380px at 82% 8%, rgba(16, 185, 129, 0.26), transparent 60%),
+-    radial-gradient(700px 360px at 12% 0%, rgba(59, 130, 246, 0.28), transparent 62%),
+-    linear-gradient(165deg, #0a1128, #101a3a 55%, #16224a);
+-  color: #fff;
+-  padding: 74px 30px 88px;
+-}
+-.lp-wrap { max-width: 1180px; margin: 0 auto; }
+-.lp-hero h1 { font-size: 46px; line-height: 1.08; max-width: 780px; }
+-.lp-hero h1 em { font-style: normal; background: linear-gradient(100deg, #34d399, #60a5fa); -webkit-background-clip: text; background-clip: text; color: transparent; }
+-.lp-hero p.lead { font-size: 17px; color: #b9c8e6; max-width: 620px; margin: 18px 0 26px; line-height: 1.6; }
+-.lp-pill {
+-  display: inline-flex; align-items: center; gap: 8px;
+-  background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2);
+-  color: #cfe0ff; padding: 6px 14px; border-radius: 999px; font-size: 12.5px; margin-bottom: 20px;
+-}
+-.lp-metrics { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 44px; }
+-.lp-metric {
+-  background: rgba(255,255,255,0.07); border: 1px solid rgba(255,255,255,0.14);
+-  border-radius: 13px; padding: 15px;
+-}
+-.lp-metric b { display: block; font-size: 24px; font-family: "Outfit", sans-serif; }
+-.lp-metric span { font-size: 12px; color: #a9bcdd; }
+-
+-.lp-section { padding: 74px 30px; }
+-.lp-section.tinted {
+-  background: linear-gradient(180deg, #eef2f9, #e6ecf7);
+-}
+-.lp-section.white { background: #fff; }
+-.lp-eyebrow {
+-  font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
+-  color: var(--blue); margin-bottom: 10px;
+-}
+-.lp-h2 { font-size: 33px; max-width: 720px; line-height: 1.16; }
+-.lp-sub { font-size: 15.5px; color: var(--text-2); max-width: 660px; margin-top: 12px; line-height: 1.6; }
+-
+-.feat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 36px; }
+-.feat {
+-  border-radius: var(--radius);
+-  padding: 20px;
+-  border: 1px solid transparent;
+-  transition: transform 0.18s ease, box-shadow 0.18s ease;
+-  position: relative;
+-  overflow: hidden;
+-}
+-.feat:hover { transform: translateY(-3px); box-shadow: var(--shadow); }
+-.feat .fi {
+-  width: 40px; height: 40px; border-radius: 11px;
+-  display: grid; place-items: center; color: #fff; margin-bottom: 13px;
+-}
+-.feat h4 { font-size: 15.5px; margin-bottom: 6px; }
+-.feat p { margin: 0; font-size: 13.2px; line-height: 1.55; }
+-.feat .tag {
+-  display: inline-block; margin-top: 11px; font-size: 11px; font-weight: 600;
+-  padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.65);
+-}
+-
+-.f-emerald { background: #e8f8f1; border-color: #c3e9d8; color: #065f46; }
+-.f-emerald .fi { background: linear-gradient(135deg, #059669, #10b981); }
+-.f-blue { background: #e8f0fe; border-color: #c9dbfb; color: #1e3a8a; }
+-.f-blue .fi { background: linear-gradient(135deg, #1d4ed8, #3b82f6); }
+-.f-violet { background: #f2eafe; border-color: #dfcdfb; color: #5b21b6; }
+-.f-violet .fi { background: linear-gradient(135deg, #6d28d9, #a855f7); }
+-.f-amber { background: #fef4e2; border-color: #f7dfb0; color: #92400e; }
+-.f-amber .fi { background: linear-gradient(135deg, #b45309, #f59e0b); }
+-.f-rose { background: #fdeaee; border-color: #f8c9d2; color: #9f1239; }
+-.f-rose .fi { background: linear-gradient(135deg, #be123c, #f43f5e); }
+-.f-cyan { background: #e4f6fb; border-color: #bfe6f2; color: #0e5c73; }
+-.f-cyan .fi { background: linear-gradient(135deg, #0e7490, #06b6d4); }
+-.f-teal { background: #e3f6f3; border-color: #bde6df; color: #115e59; }
+-.f-teal .fi { background: linear-gradient(135deg, #0d9488, #14b8a6); }
+-.f-midnight { background: #e9edf6; border-color: #ccd6e9; color: #1e293b; }
+-.f-midnight .fi { background: linear-gradient(135deg, #0a1128, #1e3a8a); }
+-.f-slate { background: #eef2f9; border-color: #d5deec; color: #334155; }
+-.f-slate .fi { background: linear-gradient(135deg, #334155, #64748b); }
+-
+-.mod-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 32px; }
+-.mod {
+-  background: #fff; border: 1px solid var(--border); border-radius: 12px; padding: 16px;
+-  box-shadow: var(--shadow-sm);
+-}
+-.mod .mi { width: 34px; height: 34px; border-radius: 9px; display: grid; place-items: center; color: #fff; margin-bottom: 10px; }
+-.mod b { font-size: 13.8px; display: block; margin-bottom: 4px; font-family: "Outfit", sans-serif; }
+-.mod span { font-size: 12.3px; color: var(--text-2); line-height: 1.5; }
+-
+-.cmp-table { width: 100%; border-collapse: collapse; margin-top: 30px; background: #fff; border-radius: 12px; overflow: hidden; box-shadow: var(--shadow-sm); }
+-.cmp-table th, .cmp-table td { padding: 13px 16px; text-align: left; font-size: 13.5px; border-bottom: 1px solid var(--border); }
+-.cmp-table thead th { background: var(--midnight); color: #fff; font-size: 12.5px; }
+-.cmp-table thead th.hi { background: linear-gradient(135deg, #059669, #10b981); }
+-.cmp-table td.hi { background: #f0fbf6; font-weight: 600; color: #065f46; }
+-
+-.lp-cta {
+-  background:
+-    radial-gradient(600px 300px at 78% 20%, rgba(16, 185, 129, 0.3), transparent 62%),
+-    linear-gradient(140deg, #0a1128, #16224a);
+-  color: #fff; border-radius: 20px; padding: 46px 40px; margin-top: 8px;
+-}
+-.lp-foot { background: var(--midnight); color: #8fa3c8; padding: 28px 30px; font-size: 12.5px; }
+-
+ /* ------------------------------------------------------------------- auth */
+ 
+ .auth-shell { display: grid; grid-template-columns: 1fr 1fr; min-height: 100vh; }
+@@ -640,9 +530,6 @@ td.right, th.right { text-align: right; }
+ @media (max-width: 1100px) {
+   .g4, .g5 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+   .g-2-1, .g-1-2, .g3 { grid-template-columns: 1fr; }
+-  .feat-grid { grid-template-columns: repeat(2, 1fr); }
+-  .mod-grid { grid-template-columns: repeat(2, 1fr); }
+-  .lp-metrics { grid-template-columns: repeat(2, 1fr); }
+   .auth-shell { grid-template-columns: 1fr; }
+   .auth-side { display: none; }
+ }
+@@ -650,147 +537,8 @@ td.right, th.right { text-align: right; }
+ @media (max-width: 720px) {
+   .sidebar { position: fixed; left: 0; z-index: 90; transform: translateX(-100%); transition: transform 0.2s ease; }
+   .sidebar.open { transform: translateX(0); }
+-  .g2, .g4, .g5, .feat-grid, .mod-grid, .lp-metrics { grid-template-columns: 1fr; }
++  .g2, .g4, .g5 { grid-template-columns: 1fr; }
+   .page { padding: 16px 14px 50px; }
+   .topbar { padding: 12px 14px; }
+-  .lp-hero h1 { font-size: 32px; }
+-  .lp-h2 { font-size: 25px; }
+-  .lp-section { padding: 48px 18px; }
+   .chat-drawer { width: 100vw; }
+ }
+-
+-/* ==========================================================================
+-   Camada 3D da página inicial (React Three Fiber) + revelações por rolagem
+-   ========================================================================== */
+-
+-.lp-root { position: relative; }
+-
+-/* Canvas fixo atrás do conteúdo. `pointer-events: none` mantém todos os
+-   links e botões da página clicáveis por cima da cena. */
+-.cena3d {
+-  position: fixed;
+-  inset: 0;
+-  z-index: 0;
+-  pointer-events: none;
+-}
+-.cena3d canvas { display: block; }
+-
+-/* Fallback sem WebGL ou com movimento reduzido: mantém o clima do hero. */
+-.cena3d-fallback {
+-  position: fixed;
+-  inset: 0;
+-  z-index: 0;
+-  pointer-events: none;
+-  background:
+-    radial-gradient(700px 360px at 78% 22%, rgba(16, 185, 129, 0.16), transparent 62%),
+-    radial-gradient(640px 340px at 18% 12%, rgba(59, 130, 246, 0.16), transparent 64%);
+-}
+-
+-/* O hero passa a ser transparente para a cena 3D aparecer atrás dele. */
+-.lp-hero-3d {
+-  position: relative;
+-  z-index: 1;
+-  min-height: 100vh;
+-  display: flex;
+-  align-items: center;
+-  padding: 96px 30px 104px;
+-  background:
+-    linear-gradient(180deg, rgba(10, 17, 40, 0.9) 0%, rgba(10, 17, 40, 0.62) 42%, rgba(16, 34, 74, 0.86) 100%);
+-}
+-.lp-hero-3d .lp-wrap { width: 100%; }
+-
+-/* Coluna de texto: um véu suave garante contraste sobre a cena. */
+-.lp-hero-texto {
+-  max-width: 660px;
+-  position: relative;
+-}
+-.lp-hero-texto::before {
+-  content: "";
+-  position: absolute;
+-  inset: -34px -60px -26px -40px;
+-  background: radial-gradient(60% 70% at 30% 50%, rgba(6, 12, 30, 0.72), transparent 78%);
+-  filter: blur(6px);
+-  z-index: -1;
+-}
+-
+-.lp-hero-3d .lp-metrics { margin-top: 52px; }
+-.lp-hero-3d .lp-metric {
+-  background: rgba(9, 17, 40, 0.55);
+-  backdrop-filter: blur(7px);
+-  border-color: rgba(255, 255, 255, 0.16);
+-}
+-
+-/* Todas as seções abaixo do hero ficam acima do canvas e opacas. */
+-.lp-nav, .lp-section, .lp-foot { position: relative; z-index: 2; }
+-.lp-section.tinted { background: linear-gradient(180deg, #eef2f9, #e6ecf7); }
+-.lp-section.white { background: #fff; }
+-
+-/* Indicação de rolagem */
+-.lp-scroll-dica {
+-  position: absolute;
+-  left: 50%;
+-  bottom: 26px;
+-  transform: translateX(-50%);
+-  display: flex;
+-  flex-direction: column;
+-  align-items: center;
+-  gap: 8px;
+-  color: #93a9d0;
+-  font-size: 11.5px;
+-  letter-spacing: 0.09em;
+-  text-transform: uppercase;
+-}
+-.lp-scroll-dica i {
+-  width: 22px;
+-  height: 34px;
+-  border: 1.5px solid rgba(255, 255, 255, 0.32);
+-  border-radius: 12px;
+-  position: relative;
+-}
+-.lp-scroll-dica i::after {
+-  content: "";
+-  position: absolute;
+-  left: 50%;
+-  top: 7px;
+-  width: 3px;
+-  height: 7px;
+-  margin-left: -1.5px;
+-  border-radius: 2px;
+-  background: #34d399;
+-  animation: sd-scroll 1.7s ease-in-out infinite;
+-}
+-@keyframes sd-scroll {
+-  0%   { transform: translateY(0); opacity: 1; }
+-  70%  { transform: translateY(11px); opacity: 0; }
+-  100% { transform: translateY(0); opacity: 0; }
+-}
+-
+-/* ------------------------------------------------- revelação por rolagem */
+-
+-.revelar {
+-  opacity: 0;
+-  transition: opacity 0.62s cubic-bezier(0.22, 0.75, 0.3, 1),
+-              transform 0.62s cubic-bezier(0.22, 0.75, 0.3, 1);
+-  will-change: opacity, transform;
+-}
+-.revelar-sobe   { transform: translate3d(0, 30px, 0); }
+-.revelar-escala { transform: scale(0.94) translate3d(0, 16px, 0); }
+-.revelar-fade   { transform: none; }
+-.revelar.visivel { opacity: 1; transform: none; }
+-
+-/* O wrapper de revelação não pode quebrar as grades: ele vira o próprio item. */
+-.feat-grid > .revelar,
+-.mod-grid > .revelar { display: block; height: 100%; }
+-.feat-grid > .revelar > .feat,
+-.mod-grid > .revelar > .mod { height: 100%; }
+-
+-@media (prefers-reduced-motion: reduce) {
+-  .revelar { opacity: 1; transform: none; transition: none; }
+-  .lp-scroll-dica i::after { animation: none; }
+-}
+-
+-@media (max-width: 720px) {
+-  .lp-hero-3d { min-height: 92vh; padding: 76px 18px 84px; }
+-  .lp-hero-texto::before { inset: -20px -20px; }
+-  .lp-scroll-dica { display: none; }
+-}
+diff --git a/frontend/src/styles/landing.css b/frontend/src/styles/landing.css
+new file mode 100644
+index 0000000..7d3ccc0
+--- /dev/null
++++ b/frontend/src/styles/landing.css
+@@ -0,0 +1,921 @@
++/* ==========================================================================
++   Sócio Digital — página pública (landing)
++
++   Identidade em duas cores:
++     principal  → verde da marca  (CTAs, destaques, ícones ativos)
++     secundária → azul de apoio   (segundo plano de gráficos e detalhes)
++   Todo o resto é neutro: tinta (quase preto azulado), cinzas e branco.
++
++   Nenhuma funcionalidade tem cor própria — era isso que poluía a versão
++   anterior, com doze cartões de doze cores diferentes.
++   ========================================================================== */
++
++.lp-root {
++  /* --------------------------------------------------------------- tokens */
++  --marca: #10b981;
++  --marca-forte: #059669;
++  --marca-clara: #34d399;
++  --marca-fraca: rgba(16, 185, 129, 0.12);
++
++  --apoio: #3b82f6;
++  --apoio-forte: #2563eb;
++  --apoio-fraca: rgba(59, 130, 246, 0.1);
++
++  --tinta: #070e22;
++  --tinta-2: #0d1733;
++  --tinta-3: #16224a;
++
++  --papel: #ffffff;
++  --papel-2: #f5f8fd;
++  --linha: #e3e9f4;
++  --linha-forte: #cfd9ea;
++
++  --texto: #0f172a;
++  --texto-2: #4a5568;
++  --texto-3: #7b8798;
++  --texto-claro: #c3d0e8;
++  --texto-claro-2: #93a3c4;
++
++  --r-sm: 10px;
++  --r: 16px;
++  --r-lg: 24px;
++
++  --sombra-1: 0 1px 2px rgba(9, 18, 40, 0.05);
++  --sombra-2: 0 10px 30px -14px rgba(9, 18, 40, 0.28);
++  --sombra-3: 0 28px 60px -30px rgba(9, 18, 40, 0.42);
++
++  position: relative;
++  background: var(--papel);
++  color: var(--texto);
++  overflow-x: hidden;
++}
++
++/* ------------------------------------------------------- palco 3D único */
++
++/* Canvas fixo do tamanho da janela. Fica acima dos fundos das seções (para a
++   cena não ser encoberta) mas não intercepta clique nenhum. As composições são
++   encaixadas dentro dos slots, então não passam por cima de texto. */
++.lp-palco {
++  position: fixed;
++  inset: 0;
++  z-index: 5;
++  pointer-events: none;
++}
++.lp-palco canvas {
++  display: block;
++  pointer-events: none;
++}
++
++/* ----------------------------------------------------------- slots 3D */
++
++.lp-slot {
++  position: relative;
++  display: block;
++  width: 100%;
++  border-radius: var(--r-lg);
++}
++.lp-slot-alta { min-height: 440px; }
++.lp-slot-media { min-height: 380px; }
++.lp-slot-baixa { min-height: 210px; }
++
++/* Halo de profundidade atrás da cena — dá contexto de luz ao objeto 3D. */
++.lp-slot-halo {
++  position: absolute;
++  inset: 8%;
++  border-radius: 50%;
++  background: radial-gradient(
++    circle at 50% 45%,
++    var(--marca-fraca) 0%,
++    var(--apoio-fraca) 42%,
++    transparent 70%
++  );
++  filter: blur(6px);
++  pointer-events: none;
++}
++
++/* Fallback em CSS: só aparece quando não há WebGL. Mantém a sensação de
++   profundidade com três camadas empilhadas em perspectiva. */
++.lp-slot-css { display: none; }
++.lp-root.sem-3d .lp-slot-css {
++  position: absolute;
++  inset: 0;
++  display: grid;
++  place-items: center;
++  perspective: 900px;
++}
++.lp-slot-css > span {
++  position: absolute;
++  border-radius: var(--r);
++  transform-style: preserve-3d;
++}
++.lp-slot-css-tras {
++  width: 58%;
++  height: 44%;
++  background: linear-gradient(140deg, var(--tinta-3), var(--tinta-2));
++  transform: translate3d(-16%, -14%, -60px) rotateX(12deg) rotateY(-16deg);
++  opacity: 0.6;
++}
++.lp-slot-css-meio {
++  width: 62%;
++  height: 46%;
++  background: linear-gradient(140deg, var(--apoio-forte), var(--apoio));
++  transform: translate3d(12%, 10%, -30px) rotateX(10deg) rotateY(-14deg);
++  opacity: 0.55;
++}
++.lp-slot-css-frente {
++  width: 46%;
++  height: 46%;
++  display: grid;
++  place-items: center;
++  color: #fff;
++  background: linear-gradient(140deg, var(--marca-forte), var(--marca));
++  box-shadow: var(--sombra-3);
++  transform: rotateX(8deg) rotateY(-12deg);
++}
++
++/* ------------------------------------------------------------- estrutura */
++
++.lp-wrap {
++  max-width: 1180px;
++  margin: 0 auto;
++  padding: 0 28px;
++  width: 100%;
++}
++.lp-wrap-estreito { max-width: 820px; }
++
++.lp-secao {
++  position: relative;
++  z-index: 1;
++  padding: 96px 0;
++}
++.lp-secao.fundo-claro { background: var(--papel); }
++.lp-secao.fundo-neutro { background: var(--papel-2); }
++.lp-secao.fundo-tinta {
++  background:
++    radial-gradient(680px 340px at 80% 12%, rgba(16, 185, 129, 0.16), transparent 62%),
++    radial-gradient(620px 320px at 12% 88%, rgba(59, 130, 246, 0.15), transparent 64%),
++    linear-gradient(158deg, var(--tinta) 0%, var(--tinta-2) 58%, var(--tinta-3) 100%);
++  color: #fff;
++}
++
++/* ----------------------------------------------------------- tipografia */
++
++.lp-root h1,
++.lp-root h2,
++.lp-root h3 {
++  font-family: "Outfit", "IBM Plex Sans", sans-serif;
++  letter-spacing: -0.024em;
++  margin: 0;
++}
++
++.lp-sobretitulo {
++  display: inline-flex;
++  align-items: center;
++  gap: 7px;
++  font-size: 11.5px;
++  font-weight: 600;
++  letter-spacing: 0.13em;
++  text-transform: uppercase;
++  color: var(--marca-forte);
++  margin-bottom: 14px;
++}
++.fundo-tinta .lp-sobretitulo { color: var(--marca-clara); }
++
++.lp-h2 {
++  font-size: clamp(27px, 3.1vw, 39px);
++  line-height: 1.14;
++  max-width: 22ch;
++}
++.lp-cabecalho.centro .lp-h2 { max-width: 24ch; }
++
++.lp-frase {
++  font-size: 17.5px;
++  line-height: 1.5;
++  color: var(--marca-forte);
++  font-weight: 600;
++  margin: 16px 0 0;
++  max-width: 34ch;
++}
++.fundo-tinta .lp-frase { color: var(--marca-clara); }
++
++.lp-texto {
++  font-size: 15.8px;
++  line-height: 1.68;
++  color: var(--texto-2);
++  margin: 14px 0 0;
++  max-width: 52ch;
++}
++.fundo-tinta .lp-texto { color: var(--texto-claro); }
++
++.lp-sub {
++  font-size: 16px;
++  line-height: 1.66;
++  color: var(--texto-2);
++  margin: 16px 0 0;
++  max-width: 62ch;
++}
++.fundo-tinta .lp-sub { color: var(--texto-claro); }
++
++.lp-cabecalho { margin-bottom: 46px; }
++.lp-cabecalho.centro {
++  text-align: center;
++  display: flex;
++  flex-direction: column;
++  align-items: center;
++}
++
++/* --------------------------------------------------------------- botões */
++
++.lp-btn {
++  display: inline-flex;
++  align-items: center;
++  justify-content: center;
++  gap: 9px;
++  border: 1px solid transparent;
++  border-radius: 12px;
++  padding: 11px 20px;
++  font-size: 14.5px;
++  font-weight: 600;
++  font-family: "Outfit", "IBM Plex Sans", sans-serif;
++  cursor: pointer;
++  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease,
++    border-color 0.18s ease, color 0.18s ease;
++  white-space: nowrap;
++}
++.lp-btn:active { transform: translateY(1px); }
++.lp-btn-sm { padding: 8px 15px; font-size: 13.5px; border-radius: 10px; }
++.lp-btn-lg { padding: 14px 26px; font-size: 15.5px; }
++.lp-btn-bloco { width: 100%; }
++
++.lp-btn-principal {
++  background: linear-gradient(135deg, var(--marca-forte), var(--marca));
++  color: #fff;
++  box-shadow: 0 10px 24px -12px rgba(5, 150, 105, 0.85);
++}
++.lp-btn-principal:hover {
++  transform: translateY(-2px);
++  box-shadow: 0 16px 32px -14px rgba(5, 150, 105, 0.95);
++}
++
++.lp-btn-vidro {
++  background: rgba(255, 255, 255, 0.09);
++  border-color: rgba(255, 255, 255, 0.26);
++  color: #fff;
++  backdrop-filter: blur(8px);
++}
++.lp-btn-vidro:hover {
++  background: rgba(255, 255, 255, 0.16);
++  border-color: rgba(255, 255, 255, 0.42);
++  transform: translateY(-2px);
++}
++
++.lp-btn-texto { color: inherit; padding: 8px 12px; }
++.lp-btn-texto:hover { color: var(--marca-clara); }
++
++.lp-botoes {
++  display: flex;
++  flex-wrap: wrap;
++  gap: 12px;
++  margin-top: 28px;
++}
++
++.lp-link-cta {
++  display: inline-flex;
++  align-items: center;
++  gap: 7px;
++  margin-top: 26px;
++  font-size: 14.5px;
++  font-weight: 600;
++  color: var(--marca-forte);
++  border-bottom: 1px solid transparent;
++  transition: border-color 0.18s ease, gap 0.18s ease;
++}
++.lp-link-cta:hover { border-color: var(--marca); gap: 11px; }
++
++/* ------------------------------------------------------------ cabeçalho */
++
++.lp-topo {
++  position: sticky;
++  top: 0;
++  z-index: 60;
++  transition: background 0.25s ease, border-color 0.25s ease, backdrop-filter 0.25s ease;
++  border-bottom: 1px solid transparent;
++  color: #fff;
++}
++.lp-topo.rolado {
++  background: rgba(7, 14, 34, 0.86);
++  backdrop-filter: blur(14px);
++  border-bottom-color: rgba(255, 255, 255, 0.09);
++}
++.lp-topo-inner {
++  max-width: 1180px;
++  margin: 0 auto;
++  padding: 14px 28px;
++  display: flex;
++  align-items: center;
++  gap: 20px;
++}
++
++.lp-marca {
++  display: inline-flex;
++  align-items: center;
++  gap: 10px;
++  font-family: "Outfit", sans-serif;
++  font-size: 15.5px;
++}
++.lp-marca-selo {
++  width: 33px;
++  height: 33px;
++  border-radius: 10px;
++  background: linear-gradient(135deg, var(--marca), var(--apoio));
++  display: grid;
++  place-items: center;
++  color: #04122a;
++  font-weight: 700;
++  font-size: 13px;
++  font-family: "Outfit", sans-serif;
++  flex-shrink: 0;
++}
++
++.lp-menu {
++  display: flex;
++  gap: 4px;
++  margin-left: auto;
++}
++.lp-menu a {
++  padding: 8px 13px;
++  border-radius: 9px;
++  font-size: 14px;
++  color: var(--texto-claro);
++  transition: color 0.18s ease, background 0.18s ease;
++}
++.lp-menu a:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
++
++.lp-topo-acoes { display: flex; align-items: center; gap: 8px; }
++
++.lp-topo-hamburguer {
++  display: none;
++  margin-left: auto;
++  background: rgba(255, 255, 255, 0.1);
++  border: 1px solid rgba(255, 255, 255, 0.2);
++  color: #fff;
++  border-radius: 10px;
++  padding: 8px;
++  cursor: pointer;
++}
++
++.lp-menu-mobile {
++  position: relative;
++  z-index: 70;
++  background: rgba(7, 14, 34, 0.97);
++  backdrop-filter: blur(14px);
++  border-top: 1px solid rgba(255, 255, 255, 0.08);
++  padding: 12px 22px 22px;
++  display: flex;
++  flex-direction: column;
++}
++.lp-menu-mobile a {
++  padding: 13px 4px;
++  font-size: 15.5px;
++  color: var(--texto-claro);
++  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
++}
++.lp-menu-mobile-acoes {
++  display: flex;
++  flex-direction: column;
++  gap: 10px;
++  margin-top: 18px;
++}
++
++/* ------------------------------------------------------------------ hero */
++
++.lp-hero {
++  position: relative;
++  z-index: 1;
++  margin-top: -71px;
++  padding: 148px 0 84px;
++  background:
++    radial-gradient(760px 400px at 78% 6%, rgba(16, 185, 129, 0.2), transparent 60%),
++    radial-gradient(700px 380px at 8% 4%, rgba(59, 130, 246, 0.2), transparent 62%),
++    linear-gradient(165deg, var(--tinta) 0%, var(--tinta-2) 56%, var(--tinta-3) 100%);
++  color: #fff;
++  overflow: hidden;
++}
++
++.lp-hero-grade {
++  display: grid;
++  grid-template-columns: 1.03fr 0.97fr;
++  gap: 40px;
++  align-items: center;
++}
++
++.lp-hero h1 {
++  font-size: clamp(32px, 4.4vw, 54px);
++  line-height: 1.06;
++  max-width: 16ch;
++}
++.lp-hero h1 em {
++  font-style: normal;
++  background: linear-gradient(100deg, var(--marca-clara), var(--apoio));
++  -webkit-background-clip: text;
++  background-clip: text;
++  color: transparent;
++}
++.lp-lead {
++  font-size: 17px;
++  line-height: 1.62;
++  color: var(--texto-claro);
++  max-width: 46ch;
++  margin: 20px 0 0;
++}
++
++.lp-selo {
++  display: inline-flex;
++  align-items: center;
++  gap: 8px;
++  padding: 7px 15px;
++  border-radius: 999px;
++  background: rgba(255, 255, 255, 0.08);
++  border: 1px solid rgba(255, 255, 255, 0.16);
++  font-size: 12.5px;
++  color: var(--marca-clara);
++  backdrop-filter: blur(8px);
++}
++
++.lp-confianca {
++  list-style: none;
++  padding: 0;
++  margin: 26px 0 0;
++  display: flex;
++  flex-wrap: wrap;
++  gap: 8px 22px;
++}
++.lp-confianca li {
++  display: inline-flex;
++  align-items: center;
++  gap: 7px;
++  font-size: 13.2px;
++  color: var(--texto-claro-2);
++}
++.lp-confianca svg { color: var(--marca-clara); }
++
++.lp-indicadores {
++  display: grid;
++  grid-template-columns: repeat(4, 1fr);
++  gap: 14px;
++  margin-top: 58px;
++}
++.lp-indicador {
++  background: rgba(255, 255, 255, 0.055);
++  border: 1px solid rgba(255, 255, 255, 0.12);
++  border-radius: var(--r);
++  padding: 17px 18px;
++  backdrop-filter: blur(8px);
++}
++.lp-indicador b {
++  display: block;
++  font-size: 25px;
++  font-family: "Outfit", sans-serif;
++  color: #fff;
++}
++.lp-indicador span { font-size: 12.3px; color: var(--texto-claro-2); }
++
++.lp-dica-rolagem {
++  position: absolute;
++  left: 50%;
++  bottom: 22px;
++  transform: translateX(-50%);
++  z-index: 2;
++}
++.lp-dica-rolagem i {
++  display: block;
++  width: 22px;
++  height: 34px;
++  border: 1.5px solid rgba(255, 255, 255, 0.3);
++  border-radius: 12px;
++  position: relative;
++}
++.lp-dica-rolagem i::after {
++  content: "";
++  position: absolute;
++  left: 50%;
++  top: 7px;
++  width: 3px;
++  height: 7px;
++  margin-left: -1.5px;
++  border-radius: 2px;
++  background: var(--marca-clara);
++  animation: lp-rolar 1.8s ease-in-out infinite;
++}
++@keyframes lp-rolar {
++  0% { transform: translateY(0); opacity: 1; }
++  70% { transform: translateY(11px); opacity: 0; }
++  100% { transform: translateY(0); opacity: 0; }
++}
++
++/* ------------------------------------------------------------- pilares */
++
++.lp-pilares {
++  display: grid;
++  grid-template-columns: repeat(3, 1fr);
++  gap: 18px;
++}
++.lp-pilar {
++  height: 100%;
++  background: var(--papel-2);
++  border: 1px solid var(--linha);
++  border-radius: var(--r);
++  padding: 26px 24px;
++  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
++}
++.lp-pilar:hover {
++  transform: translateY(-4px);
++  box-shadow: var(--sombra-2);
++  border-color: var(--linha-forte);
++}
++.lp-pilar-icone {
++  width: 42px;
++  height: 42px;
++  border-radius: 12px;
++  display: grid;
++  place-items: center;
++  color: #fff;
++  background: linear-gradient(135deg, var(--marca-forte), var(--marca));
++  margin-bottom: 16px;
++}
++.lp-pilar h3 { font-size: 17px; margin-bottom: 8px; }
++.lp-pilar p { margin: 0; font-size: 14.4px; line-height: 1.62; color: var(--texto-2); }
++
++/* --------------------------------------------------- seção de recurso */
++
++.lp-feature-grade {
++  display: grid;
++  grid-template-columns: 1fr 1fr;
++  gap: 56px;
++  align-items: center;
++}
++.lp-feature-grade.invertida .lp-feature-texto { order: 2; }
++.lp-feature-grade.invertida .lp-feature-visual { order: 1; }
++
++.lp-feature-visual { width: 100%; }
++
++.lp-beneficios {
++  list-style: none;
++  padding: 0;
++  margin: 26px 0 0;
++  display: grid;
++  gap: 11px;
++}
++.lp-beneficios li {
++  display: flex;
++  align-items: flex-start;
++  gap: 11px;
++  font-size: 14.6px;
++  line-height: 1.5;
++  color: var(--texto);
++}
++.lp-beneficios svg {
++  color: var(--marca-forte);
++  flex-shrink: 0;
++  margin-top: 2px;
++}
++.fundo-tinta .lp-beneficios li { color: var(--texto-claro); }
++.fundo-tinta .lp-beneficios svg { color: var(--marca-clara); }
++
++/* --------------------------------------------------------------- passos */
++
++.lp-passos {
++  display: grid;
++  grid-template-columns: repeat(3, 1fr);
++  gap: 18px;
++}
++.lp-passo {
++  height: 100%;
++  position: relative;
++  background: var(--papel-2);
++  border: 1px solid var(--linha);
++  border-radius: var(--r);
++  padding: 28px 24px;
++  transition: transform 0.22s ease, box-shadow 0.22s ease;
++}
++.lp-passo:hover { transform: translateY(-4px); box-shadow: var(--sombra-2); }
++.lp-passo-num {
++  display: grid;
++  place-items: center;
++  width: 38px;
++  height: 38px;
++  border-radius: 11px;
++  background: linear-gradient(135deg, var(--marca-forte), var(--marca));
++  color: #fff;
++  font-family: "Outfit", sans-serif;
++  font-weight: 700;
++  font-size: 16px;
++  margin-bottom: 16px;
++}
++.lp-passo h3 { font-size: 17px; margin-bottom: 8px; }
++.lp-passo p { margin: 0; font-size: 14.4px; line-height: 1.62; color: var(--texto-2); }
++
++/* ---------------------------------------------------------- benefícios */
++
++.lp-beneficios-grade {
++  display: grid;
++  grid-template-columns: repeat(3, 1fr);
++  gap: 18px;
++}
++.lp-beneficios-grade > .revelar { height: 100%; }
++
++.lp-beneficio {
++  height: 100%;
++  background: var(--papel);
++  border: 1px solid var(--linha);
++  border-radius: var(--r);
++  padding: 24px 22px;
++  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
++}
++.lp-beneficio:hover {
++  transform: translateY(-4px);
++  box-shadow: var(--sombra-2);
++  border-color: var(--linha-forte);
++}
++.lp-beneficio-icone {
++  width: 38px;
++  height: 38px;
++  border-radius: 11px;
++  display: grid;
++  place-items: center;
++  color: var(--marca-forte);
++  background: var(--marca-fraca);
++  margin-bottom: 14px;
++}
++.lp-beneficio h3 { font-size: 16px; margin-bottom: 7px; }
++.lp-beneficio p { margin: 0; font-size: 14.2px; line-height: 1.6; color: var(--texto-2); }
++
++/* ------------------------------------------------------------ para quem */
++
++.lp-publicos {
++  display: grid;
++  grid-template-columns: repeat(3, 1fr);
++  gap: 16px;
++}
++.lp-publicos > .revelar { height: 100%; }
++
++.lp-publico {
++  height: 100%;
++  display: flex;
++  gap: 14px;
++  align-items: flex-start;
++  background: var(--papel-2);
++  border: 1px solid var(--linha);
++  border-radius: var(--r);
++  padding: 20px;
++  transition: transform 0.22s ease, border-color 0.22s ease;
++}
++.lp-publico:hover { transform: translateY(-3px); border-color: var(--linha-forte); }
++.lp-publico-icone {
++  width: 36px;
++  height: 36px;
++  flex-shrink: 0;
++  border-radius: 10px;
++  display: grid;
++  place-items: center;
++  color: var(--apoio-forte);
++  background: var(--apoio-fraca);
++}
++.lp-publico h3 { font-size: 15.4px; margin-bottom: 5px; }
++.lp-publico p { margin: 0; font-size: 13.8px; line-height: 1.58; color: var(--texto-2); }
++
++/* ------------------------------------------------------------ segurança */
++
++.lp-seguranca-lista { display: grid; gap: 14px; margin-top: 28px; }
++.lp-seguranca-item {
++  display: flex;
++  gap: 14px;
++  align-items: flex-start;
++  background: var(--papel);
++  border: 1px solid var(--linha);
++  border-radius: var(--r);
++  padding: 18px 20px;
++}
++.lp-seguranca-item > span {
++  width: 36px;
++  height: 36px;
++  flex-shrink: 0;
++  border-radius: 10px;
++  display: grid;
++  place-items: center;
++  color: var(--marca-forte);
++  background: var(--marca-fraca);
++}
++.lp-seguranca-item h3 { font-size: 15.4px; margin-bottom: 5px; }
++.lp-seguranca-item p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--texto-2); }
++
++/* ------------------------------------------------------------------ FAQ */
++
++.lp-faq { display: grid; gap: 10px; }
++.lp-faq-item {
++  background: var(--papel-2);
++  border: 1px solid var(--linha);
++  border-radius: var(--r);
++  overflow: hidden;
++  transition: border-color 0.22s ease, box-shadow 0.22s ease;
++}
++.lp-faq-item.aberto {
++  border-color: rgba(16, 185, 129, 0.4);
++  box-shadow: var(--sombra-2);
++}
++.lp-faq-pergunta {
++  width: 100%;
++  display: flex;
++  align-items: center;
++  justify-content: space-between;
++  gap: 16px;
++  padding: 19px 22px;
++  background: none;
++  border: 0;
++  cursor: pointer;
++  text-align: left;
++  font-family: "Outfit", "IBM Plex Sans", sans-serif;
++  font-size: 15.6px;
++  font-weight: 600;
++  color: var(--texto);
++}
++.lp-faq-pergunta svg { color: var(--marca-forte); flex-shrink: 0; }
++.lp-faq-resposta {
++  display: grid;
++  grid-template-rows: 0fr;
++  transition: grid-template-rows 0.32s cubic-bezier(0.22, 0.75, 0.3, 1);
++}
++.lp-faq-item.aberto .lp-faq-resposta { grid-template-rows: 1fr; }
++.lp-faq-resposta > p {
++  overflow: hidden;
++  margin: 0;
++  padding: 0 22px;
++  font-size: 14.8px;
++  line-height: 1.68;
++  color: var(--texto-2);
++}
++.lp-faq-item.aberto .lp-faq-resposta > p { padding-bottom: 21px; }
++
++/* ------------------------------------------------------------ CTA final */
++
++.lp-cta-secao { padding: 84px 0; }
++.lp-cta {
++  display: grid;
++  grid-template-columns: 1.15fr 0.85fr;
++  gap: 34px;
++  align-items: center;
++  background: rgba(255, 255, 255, 0.045);
++  border: 1px solid rgba(255, 255, 255, 0.12);
++  border-radius: var(--r-lg);
++  padding: 46px 44px;
++  backdrop-filter: blur(10px);
++}
++.lp-cta h2 {
++  font-size: clamp(25px, 3vw, 35px);
++  line-height: 1.16;
++  max-width: 20ch;
++}
++.lp-cta p {
++  margin: 16px 0 0;
++  font-size: 15.6px;
++  line-height: 1.65;
++  color: var(--texto-claro);
++  max-width: 52ch;
++}
++.lp-cta-rodape {
++  display: block;
++  margin-top: 16px;
++  font-size: 12.8px;
++  color: var(--texto-claro-2);
++}
++.lp-cta-visual { min-height: 190px; }
++
++/* ---------------------------------------------------------------- rodapé */
++
++.lp-rodape {
++  position: relative;
++  z-index: 1;
++  background: var(--tinta);
++  color: var(--texto-claro-2);
++  padding: 58px 0 26px;
++}
++.lp-rodape-grade {
++  display: grid;
++  grid-template-columns: 1.6fr repeat(4, 1fr);
++  gap: 34px;
++}
++.lp-rodape-marca { display: flex; flex-direction: column; gap: 10px; }
++.lp-rodape-marca b { color: #fff; font-family: "Outfit", sans-serif; font-size: 15.5px; }
++.lp-rodape-marca p {
++  margin: 4px 0 0;
++  font-size: 13.4px;
++  line-height: 1.62;
++  max-width: 34ch;
++}
++.lp-rodape h3 {
++  font-size: 12px;
++  letter-spacing: 0.11em;
++  text-transform: uppercase;
++  color: #fff;
++  margin-bottom: 14px;
++}
++.lp-rodape ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 9px; }
++.lp-rodape a { font-size: 13.6px; transition: color 0.18s ease; }
++.lp-rodape a:hover { color: var(--marca-clara); }
++.lp-rodape-base {
++  display: flex;
++  flex-wrap: wrap;
++  justify-content: space-between;
++  gap: 10px;
++  margin-top: 42px;
++  padding-top: 22px;
++  border-top: 1px solid rgba(255, 255, 255, 0.08);
++  font-size: 12.6px;
++}
++
++/* -------------------------------------------------- revelação por scroll */
++
++.lp-root .revelar {
++  opacity: 0;
++  transition: opacity 0.66s cubic-bezier(0.22, 0.75, 0.3, 1),
++    transform 0.66s cubic-bezier(0.22, 0.75, 0.3, 1);
++  will-change: opacity, transform;
++}
++.lp-root .revelar-sobe { transform: translate3d(0, 30px, 0); }
++.lp-root .revelar-escala { transform: scale(0.95) translate3d(0, 16px, 0); }
++.lp-root .revelar-fade { transform: none; }
++.lp-root .revelar.visivel { opacity: 1; transform: none; }
++
++/* ------------------------------------------------------------ responsivo */
++
++@media (max-width: 1080px) {
++  .lp-menu { display: none; }
++  .lp-topo-acoes { display: none; }
++  .lp-topo-hamburguer { display: inline-grid; place-items: center; }
++
++  .lp-hero-grade { grid-template-columns: 1fr; gap: 24px; }
++  .lp-hero-texto { order: 2; }
++  .lp-hero-visual { order: 1; }
++  .lp-hero h1, .lp-lead { max-width: none; }
++
++  .lp-feature-grade { grid-template-columns: 1fr; gap: 26px; }
++  /* No mobile o visual sempre vem antes do texto: a alternância de lados
++     não existe em coluna única e inverter a ordem só confundiria a leitura. */
++  .lp-feature-grade .lp-feature-texto,
++  .lp-feature-grade.invertida .lp-feature-texto { order: 2; }
++  .lp-feature-grade .lp-feature-visual,
++  .lp-feature-grade.invertida .lp-feature-visual { order: 1; }
++
++  .lp-pilares,
++  .lp-passos,
++  .lp-beneficios-grade,
++  .lp-publicos { grid-template-columns: repeat(2, 1fr); }
++
++  .lp-cta { grid-template-columns: 1fr; }
++  .lp-cta-visual { display: none; }
++
++  .lp-rodape-grade { grid-template-columns: 1fr 1fr 1fr; }
++  .lp-rodape-marca { grid-column: 1 / -1; }
++}
++
++@media (max-width: 720px) {
++  .lp-wrap { padding: 0 18px; }
++  .lp-topo-inner { padding: 12px 18px; }
++  .lp-secao { padding: 62px 0; }
++  .lp-hero { padding: 118px 0 62px; }
++
++  /* Cenas 3D menores no celular: continuam presentes, mas ocupam menos tela
++     e exigem menos do GPU. */
++  .lp-slot-alta { min-height: 280px; }
++  .lp-slot-media { min-height: 248px; }
++  .lp-slot-baixa { min-height: 170px; }
++
++  .lp-indicadores { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 36px; }
++  .lp-indicador { padding: 14px; }
++  .lp-indicador b { font-size: 21px; }
++
++  .lp-pilares,
++  .lp-passos,
++  .lp-beneficios-grade,
++  .lp-publicos { grid-template-columns: 1fr; }
++
++  .lp-botoes .lp-btn { flex: 1 1 100%; }
++  .lp-cta { padding: 32px 22px; }
++  .lp-dica-rolagem { display: none; }
++
++  .lp-rodape-grade { grid-template-columns: 1fr 1fr; }
++  .lp-rodape { padding: 44px 0 22px; }
++}
++
++/* --------------------------------------------------- movimento reduzido */
++
++@media (prefers-reduced-motion: reduce) {
++  .lp-root .revelar { opacity: 1; transform: none; transition: none; }
++  .lp-dica-rolagem i::after { animation: none; }
++  .lp-btn:hover,
++  .lp-pilar:hover,
++  .lp-passo:hover,
++  .lp-beneficio:hover,
++  .lp-publico:hover { transform: none; }
++  .lp-faq-resposta { transition: none; }
++}
+diff --git a/render.yaml b/render.yaml
+index 5bbb50e..c68183a 100644
+--- a/render.yaml
++++ b/render.yaml
+@@ -2,14 +2,31 @@ services:
+   - type: web
+     name: socio-digital
+     runtime: docker
+-    healthCheckPath: /
++    dockerfilePath: ./Dockerfile
++    dockerContext: .
++
++    # Rota de saúde própria, servida pelo backend. Apontar o health check para
++    # "/" fazia a verificação depender do HTML da SPA — e qualquer falha ali
++    # marcava o serviço como indisponível, momento em que a Render passa a
++    # mostrar a página dela no lugar do site.
++    healthCheckPath: /healthz
++
+     envVars:
+       - key: APP_ENV
+         value: production
++      - key: PYTHONUNBUFFERED
++        value: "1"
++
++      # Opcional. Sem ela o backend usa RENDER_EXTERNAL_URL, que a plataforma
++      # injeta sozinha. Só preencha se o frontend for servido em outro domínio.
+       - key: FRONTEND_URL
+         sync: false
++
++      # Caminho do SQLite. Aponte para dentro de um disco persistente, senão o
++      # banco é recriado a cada deploy.
+       - key: SQLITE_PATH
+         sync: false
++
+       - key: OAUTH_STATE_SECRET
+         sync: false
+       - key: TOKEN_ENCRYPTION_KEY

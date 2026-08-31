@@ -2,14 +2,31 @@ services:
   - type: web
     name: socio-digital
     runtime: docker
-    healthCheckPath: /
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+
+    # Rota de saúde própria, servida pelo backend. Apontar o health check para
+    # "/" fazia a verificação depender do HTML da SPA — e qualquer falha ali
+    # marcava o serviço como indisponível, momento em que a Render passa a
+    # mostrar a página dela no lugar do site.
+    healthCheckPath: /healthz
+
     envVars:
       - key: APP_ENV
         value: production
+      - key: PYTHONUNBUFFERED
+        value: "1"
+
+      # Opcional. Sem ela o backend usa RENDER_EXTERNAL_URL, que a plataforma
+      # injeta sozinha. Só preencha se o frontend for servido em outro domínio.
       - key: FRONTEND_URL
         sync: false
+
+      # Caminho do SQLite. Aponte para dentro de um disco persistente, senão o
+      # banco é recriado a cada deploy.
       - key: SQLITE_PATH
         sync: false
+
       - key: OAUTH_STATE_SECRET
         sync: false
       - key: TOKEN_ENCRYPTION_KEY

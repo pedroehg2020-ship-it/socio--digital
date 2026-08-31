@@ -1,9 +1,20 @@
 import * as esbuild from "esbuild";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const dir = path.dirname(fileURLToPath(import.meta.url));
 const watch = process.argv.includes("--watch");
+
+/**
+ * Os nomes dos chunks levam hash. Sem limpar a pasta, cada build deixa para
+ * trás o chunk da versão anterior — arquivos mortos que continuam sendo
+ * publicados pelo backend e engordam o repositório.
+ */
+const saida = path.join(dir, "static/js");
+if (!watch && fs.existsSync(saida)) {
+  fs.rmSync(saida, { recursive: true, force: true });
+}
 
 /**
  * Gera os arquivos servidos por backend/app.py em /static/js/.
