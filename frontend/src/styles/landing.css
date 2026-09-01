@@ -1,60 +1,71 @@
 /* ==========================================================================
-   Sócio Digital — página pública (landing)
+   Sócio Digital — página pública
 
-   Identidade em duas cores:
-     principal  → verde da marca  (CTAs, destaques, ícones ativos)
-     secundária → azul de apoio   (segundo plano de gráficos e detalhes)
-   Todo o resto é neutro: tinta (quase preto azulado), cinzas e branco.
+   Duas cores, muitos tons.
+     principal  → verde da marca
+     secundária → azul de apoio
+   O resto é a escala de tinta (quase preto azulado) até o branco.
 
-   Nenhuma funcionalidade tem cor própria — era isso que poluía a versão
-   anterior, com doze cartões de doze cores diferentes.
+   A versão anterior errou o alvo: "poucas cores" virou "página branca".
+   Aqui a base é escura, e o branco vira recurso de contraste — usado em duas
+   ou três seções para quebrar o ritmo, não como fundo padrão.
    ========================================================================== */
 
 .lp-root {
-  /* --------------------------------------------------------------- tokens */
+  /* --------------------------------------------------------------- marca */
+  --marca-50: #ecfdf5;
+  --marca-200: #a7f3d0;
+  --marca-300: #6ee7b7;
+  --marca-400: #34d399;
   --marca: #10b981;
-  --marca-forte: #059669;
-  --marca-clara: #34d399;
-  --marca-fraca: rgba(16, 185, 129, 0.12);
+  --marca-600: #059669;
+  --marca-700: #047857;
+  --marca-900: #064e3b;
 
+  --apoio-200: #bfdbfe;
+  --apoio-300: #93c5fd;
+  --apoio-400: #60a5fa;
   --apoio: #3b82f6;
-  --apoio-forte: #2563eb;
-  --apoio-fraca: rgba(59, 130, 246, 0.1);
+  --apoio-600: #2563eb;
+  --apoio-800: #1e40af;
 
-  --tinta: #070e22;
-  --tinta-2: #0d1733;
-  --tinta-3: #16224a;
+  /* ---------------------------------------------------------- escala tinta */
+  --tinta-950: #04081a;
+  --tinta-900: #070e22;
+  --tinta-800: #0b142e;
+  --tinta-700: #101b3c;
+  --tinta-600: #16224a;
+  --tinta-500: #1f2f5e;
+  --tinta-400: #2c3f76;
 
   --papel: #ffffff;
-  --papel-2: #f5f8fd;
-  --linha: #e3e9f4;
-  --linha-forte: #cfd9ea;
+  --papel-2: #f3f7fd;
+  --papel-3: #e8eff9;
+  --linha: #dde5f2;
 
-  --texto: #0f172a;
-  --texto-2: #4a5568;
-  --texto-3: #7b8798;
-  --texto-claro: #c3d0e8;
-  --texto-claro-2: #93a3c4;
+  --texto: #0b1430;
+  --texto-2: #4a5a78;
+  --texto-3: #7c8aa5;
+  --claro: #eaf1ff;
+  --claro-2: #b6c6e4;
+  --claro-3: #8397ba;
 
-  --r-sm: 10px;
   --r: 16px;
-  --r-lg: 24px;
+  --r-lg: 26px;
+  --r-xl: 34px;
 
-  --sombra-1: 0 1px 2px rgba(9, 18, 40, 0.05);
-  --sombra-2: 0 10px 30px -14px rgba(9, 18, 40, 0.28);
-  --sombra-3: 0 28px 60px -30px rgba(9, 18, 40, 0.42);
+  --sombra-2: 0 12px 34px -16px rgba(4, 8, 26, 0.5);
+  --sombra-3: 0 34px 80px -34px rgba(4, 8, 26, 0.75);
+  --brilho-marca: 0 0 0 1px rgba(16, 185, 129, 0.22), 0 18px 50px -22px rgba(16, 185, 129, 0.6);
 
   position: relative;
-  background: var(--papel);
-  color: var(--texto);
+  background: var(--tinta-900);
+  color: var(--claro);
   overflow-x: hidden;
 }
 
-/* ------------------------------------------------------- palco 3D único */
+/* ---------------------------------------------------------- palco 3D único */
 
-/* Canvas fixo do tamanho da janela. Fica acima dos fundos das seções (para a
-   cena não ser encoberta) mas não intercepta clique nenhum. As composições são
-   encaixadas dentro dos slots, então não passam por cima de texto. */
 .lp-palco {
   position: fixed;
   inset: 0;
@@ -66,157 +77,257 @@
   pointer-events: none;
 }
 
-/* ----------------------------------------------------------- slots 3D */
+/* ------------------------------------------------------------------ slots */
 
+/* Grandes de propósito. A cena transborda a coluna: é o que faz a composição
+   parecer um ambiente e não uma ilustração dentro de uma caixa. */
 .lp-slot {
   position: relative;
   display: block;
   width: 100%;
-  border-radius: var(--r-lg);
+  border-radius: var(--r-xl);
 }
-.lp-slot-alta { min-height: 440px; }
-.lp-slot-media { min-height: 380px; }
-.lp-slot-baixa { min-height: 210px; }
+.lp-slot-alta { min-height: 620px; }
+.lp-slot-media { min-height: 520px; }
+.lp-slot-baixa { min-height: 340px; }
 
-/* Halo de profundidade atrás da cena — dá contexto de luz ao objeto 3D. */
+/* Névoa atrás da cena — sustenta a leitura de volume iluminado. */
 .lp-slot-halo {
   position: absolute;
-  inset: 8%;
+  inset: -14%;
   border-radius: 50%;
-  background: radial-gradient(
-    circle at 50% 45%,
-    var(--marca-fraca) 0%,
-    var(--apoio-fraca) 42%,
-    transparent 70%
-  );
-  filter: blur(6px);
+  background:
+    radial-gradient(circle at 38% 40%, rgba(16, 185, 129, 0.2) 0%, transparent 58%),
+    radial-gradient(circle at 66% 62%, rgba(59, 130, 246, 0.18) 0%, transparent 60%);
+  filter: blur(28px);
   pointer-events: none;
 }
+.fundo-claro .lp-slot-halo,
+.fundo-papel .lp-slot-halo {
+  background:
+    radial-gradient(circle at 38% 40%, rgba(16, 185, 129, 0.16) 0%, transparent 58%),
+    radial-gradient(circle at 66% 62%, rgba(59, 130, 246, 0.14) 0%, transparent 60%);
+}
 
-/* Fallback em CSS: só aparece quando não há WebGL. Mantém a sensação de
-   profundidade com três camadas empilhadas em perspectiva. */
+/* Fallback sem WebGL: três lâminas em perspectiva, não um ícone. */
 .lp-slot-css { display: none; }
 .lp-root.sem-3d .lp-slot-css {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  perspective: 900px;
+  perspective: 1200px;
 }
 .lp-slot-css > span {
   position: absolute;
-  border-radius: var(--r);
+  border-radius: var(--r-lg);
   transform-style: preserve-3d;
 }
 .lp-slot-css-tras {
-  width: 58%;
-  height: 44%;
-  background: linear-gradient(140deg, var(--tinta-3), var(--tinta-2));
-  transform: translate3d(-16%, -14%, -60px) rotateX(12deg) rotateY(-16deg);
-  opacity: 0.6;
+  width: 66%;
+  height: 46%;
+  background: linear-gradient(140deg, var(--tinta-500), var(--tinta-700));
+  transform: translate3d(-18%, -16%, -110px) rotateX(14deg) rotateY(-20deg);
+  box-shadow: var(--sombra-3);
 }
 .lp-slot-css-meio {
-  width: 62%;
-  height: 46%;
-  background: linear-gradient(140deg, var(--apoio-forte), var(--apoio));
-  transform: translate3d(12%, 10%, -30px) rotateX(10deg) rotateY(-14deg);
-  opacity: 0.55;
+  width: 70%;
+  height: 48%;
+  background: linear-gradient(140deg, var(--apoio-600), var(--apoio));
+  transform: translate3d(14%, 12%, -55px) rotateX(11deg) rotateY(-17deg);
+  opacity: 0.62;
+  box-shadow: var(--sombra-3);
 }
 .lp-slot-css-frente {
-  width: 46%;
-  height: 46%;
+  width: 52%;
+  height: 50%;
   display: grid;
   place-items: center;
-  color: #fff;
-  background: linear-gradient(140deg, var(--marca-forte), var(--marca));
+  color: #04231a;
+  background: linear-gradient(140deg, var(--marca-300), var(--marca-600));
   box-shadow: var(--sombra-3);
-  transform: rotateX(8deg) rotateY(-12deg);
+  transform: rotateX(9deg) rotateY(-14deg);
 }
 
-/* ------------------------------------------------------------- estrutura */
+/* -------------------------------------------------------------- estrutura */
 
 .lp-wrap {
-  max-width: 1180px;
+  max-width: 1220px;
   margin: 0 auto;
   padding: 0 28px;
   width: 100%;
 }
-.lp-wrap-estreito { max-width: 820px; }
+.lp-wrap-estreito { max-width: 860px; }
 
 .lp-secao {
   position: relative;
   z-index: 1;
-  padding: 96px 0;
-}
-.lp-secao.fundo-claro { background: var(--papel); }
-.lp-secao.fundo-neutro { background: var(--papel-2); }
-.lp-secao.fundo-tinta {
-  background:
-    radial-gradient(680px 340px at 80% 12%, rgba(16, 185, 129, 0.16), transparent 62%),
-    radial-gradient(620px 320px at 12% 88%, rgba(59, 130, 246, 0.15), transparent 64%),
-    linear-gradient(158deg, var(--tinta) 0%, var(--tinta-2) 58%, var(--tinta-3) 100%);
-  color: #fff;
+  padding: 120px 0;
+  overflow: hidden;
 }
 
-/* ----------------------------------------------------------- tipografia */
+/* --- variações de fundo: é a alternância que impede a monotonia --- */
+
+.fundo-tinta {
+  background: var(--tinta-900);
+}
+.fundo-tinta::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(760px 420px at 82% 8%, rgba(16, 185, 129, 0.14), transparent 62%),
+    radial-gradient(700px 400px at 10% 90%, rgba(59, 130, 246, 0.13), transparent 64%);
+  pointer-events: none;
+}
+
+.fundo-abismo {
+  background: linear-gradient(180deg, var(--tinta-900) 0%, var(--tinta-950) 52%, var(--tinta-900) 100%);
+}
+.fundo-abismo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(900px 500px at 50% 50%, rgba(16, 185, 129, 0.16), transparent 66%),
+    radial-gradient(600px 400px at 15% 20%, rgba(59, 130, 246, 0.14), transparent 62%);
+  pointer-events: none;
+}
+
+.fundo-noite {
+  background: linear-gradient(160deg, var(--tinta-800) 0%, var(--tinta-700) 48%, var(--tinta-600) 100%);
+}
+.fundo-noite::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(720px 420px at 20% 15%, rgba(52, 211, 153, 0.13), transparent 62%);
+  pointer-events: none;
+}
+
+/* Seções claras: entram duas ou três vezes na página, para respirar. */
+.fundo-claro {
+  background: linear-gradient(180deg, var(--papel) 0%, var(--papel-2) 100%);
+  color: var(--texto);
+}
+.fundo-papel {
+  background: linear-gradient(180deg, var(--papel-2) 0%, var(--papel-3) 100%);
+  color: var(--texto);
+}
+.fundo-claro::before,
+.fundo-papel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(660px 380px at 88% 6%, rgba(16, 185, 129, 0.1), transparent 60%),
+    radial-gradient(600px 360px at 6% 94%, rgba(59, 130, 246, 0.09), transparent 62%);
+  pointer-events: none;
+}
+
+/* Costura entre uma seção escura e uma clara. */
+.lp-emenda {
+  position: relative;
+  z-index: 2;
+  height: 96px;
+  margin-top: -96px;
+  pointer-events: none;
+}
+.lp-emenda-baixo { background: linear-gradient(180deg, transparent, var(--papel)); }
+.lp-emenda-cima { background: linear-gradient(180deg, transparent, var(--tinta-900)); }
+
+/* Grade técnica sutil — textura de fundo sem virar ruído. */
+.lp-grade {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+  background-size: 68px 68px;
+  mask-image: radial-gradient(ellipse 80% 62% at 50% 42%, #000 20%, transparent 78%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 62% at 50% 42%, #000 20%, transparent 78%);
+  pointer-events: none;
+}
+
+/* ------------------------------------------------------------ tipografia */
 
 .lp-root h1,
 .lp-root h2,
 .lp-root h3 {
   font-family: "Outfit", "IBM Plex Sans", sans-serif;
-  letter-spacing: -0.024em;
+  letter-spacing: -0.028em;
   margin: 0;
 }
 
 .lp-sobretitulo {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  gap: 8px;
+  padding: 6px 14px 6px 11px;
+  border-radius: 999px;
+  background: rgba(16, 185, 129, 0.1);
+  border: 1px solid rgba(16, 185, 129, 0.28);
   font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: var(--marca-forte);
-  margin-bottom: 14px;
+  color: var(--marca-300);
+  margin-bottom: 20px;
 }
-.fundo-tinta .lp-sobretitulo { color: var(--marca-clara); }
+.fundo-claro .lp-sobretitulo,
+.fundo-papel .lp-sobretitulo {
+  color: var(--marca-700);
+  background: rgba(16, 185, 129, 0.09);
+  border-color: rgba(16, 185, 129, 0.26);
+}
 
 .lp-h2 {
-  font-size: clamp(27px, 3.1vw, 39px);
-  line-height: 1.14;
-  max-width: 22ch;
+  font-size: clamp(30px, 3.5vw, 46px);
+  line-height: 1.1;
+  max-width: 20ch;
 }
-.lp-cabecalho.centro .lp-h2 { max-width: 24ch; }
+.lp-cabecalho.centro .lp-h2 { max-width: 22ch; }
 
 .lp-frase {
-  font-size: 17.5px;
-  line-height: 1.5;
-  color: var(--marca-forte);
+  font-size: clamp(18px, 1.5vw, 21px);
+  line-height: 1.45;
   font-weight: 600;
-  margin: 16px 0 0;
-  max-width: 34ch;
+  margin: 18px 0 0;
+  max-width: 32ch;
+  background: linear-gradient(96deg, var(--marca-300), var(--apoio-300));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
-.fundo-tinta .lp-frase { color: var(--marca-clara); }
+.fundo-claro .lp-frase,
+.fundo-papel .lp-frase {
+  background: linear-gradient(96deg, var(--marca-700), var(--apoio-600));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
 
 .lp-texto {
-  font-size: 15.8px;
-  line-height: 1.68;
-  color: var(--texto-2);
-  margin: 14px 0 0;
-  max-width: 52ch;
+  font-size: 16.5px;
+  line-height: 1.72;
+  color: var(--claro-2);
+  margin: 18px 0 0;
+  max-width: 50ch;
 }
-.fundo-tinta .lp-texto { color: var(--texto-claro); }
+.fundo-claro .lp-texto,
+.fundo-papel .lp-texto { color: var(--texto-2); }
 
 .lp-sub {
-  font-size: 16px;
-  line-height: 1.66;
-  color: var(--texto-2);
-  margin: 16px 0 0;
-  max-width: 62ch;
+  font-size: 17px;
+  line-height: 1.68;
+  color: var(--claro-2);
+  margin: 18px 0 0;
+  max-width: 60ch;
 }
-.fundo-tinta .lp-sub { color: var(--texto-claro); }
+.fundo-claro .lp-sub,
+.fundo-papel .lp-sub { color: var(--texto-2); }
 
-.lp-cabecalho { margin-bottom: 46px; }
+.lp-cabecalho { margin-bottom: 58px; }
 .lp-cabecalho.centro {
   text-align: center;
   display: flex;
@@ -224,110 +335,110 @@
   align-items: center;
 }
 
-/* --------------------------------------------------------------- botões */
+/* ----------------------------------------------------------------- botões */
 
 .lp-btn {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 9px;
   border: 1px solid transparent;
-  border-radius: 12px;
-  padding: 11px 20px;
+  border-radius: 13px;
+  padding: 12px 22px;
   font-size: 14.5px;
   font-weight: 600;
   font-family: "Outfit", "IBM Plex Sans", sans-serif;
   cursor: pointer;
-  transition: transform 0.18s ease, box-shadow 0.18s ease, background 0.18s ease,
-    border-color 0.18s ease, color 0.18s ease;
   white-space: nowrap;
+  transition: transform 0.2s cubic-bezier(0.22, 0.8, 0.3, 1), box-shadow 0.2s ease,
+    background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
 }
-.lp-btn:active { transform: translateY(1px); }
-.lp-btn-sm { padding: 8px 15px; font-size: 13.5px; border-radius: 10px; }
-.lp-btn-lg { padding: 14px 26px; font-size: 15.5px; }
+.lp-btn:active { transform: translateY(1px) scale(0.99); }
+.lp-btn-sm { padding: 9px 16px; font-size: 13.5px; border-radius: 11px; }
+.lp-btn-lg { padding: 16px 30px; font-size: 16px; border-radius: 15px; }
 .lp-btn-bloco { width: 100%; }
 
 .lp-btn-principal {
-  background: linear-gradient(135deg, var(--marca-forte), var(--marca));
-  color: #fff;
-  box-shadow: 0 10px 24px -12px rgba(5, 150, 105, 0.85);
+  background: linear-gradient(135deg, var(--marca-600) 0%, var(--marca) 52%, var(--marca-400) 100%);
+  color: #04231a;
+  box-shadow: var(--brilho-marca);
 }
 .lp-btn-principal:hover {
-  transform: translateY(-2px);
-  box-shadow: 0 16px 32px -14px rgba(5, 150, 105, 0.95);
+  transform: translateY(-3px);
+  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.4), 0 26px 60px -22px rgba(16, 185, 129, 0.85);
 }
 
 .lp-btn-vidro {
-  background: rgba(255, 255, 255, 0.09);
-  border-color: rgba(255, 255, 255, 0.26);
+  background: rgba(255, 255, 255, 0.07);
+  border-color: rgba(255, 255, 255, 0.2);
   color: #fff;
-  backdrop-filter: blur(8px);
+  backdrop-filter: blur(12px);
 }
 .lp-btn-vidro:hover {
-  background: rgba(255, 255, 255, 0.16);
-  border-color: rgba(255, 255, 255, 0.42);
-  transform: translateY(-2px);
+  background: rgba(255, 255, 255, 0.14);
+  border-color: rgba(255, 255, 255, 0.4);
+  transform: translateY(-3px);
 }
-
-.lp-btn-texto { color: inherit; padding: 8px 12px; }
-.lp-btn-texto:hover { color: var(--marca-clara); }
-
-.lp-botoes {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
-  margin-top: 28px;
+.fundo-claro .lp-btn-vidro,
+.fundo-papel .lp-btn-vidro {
+  background: rgba(11, 20, 48, 0.05);
+  border-color: rgba(11, 20, 48, 0.16);
+  color: var(--texto);
 }
+.fundo-claro .lp-btn-vidro:hover,
+.fundo-papel .lp-btn-vidro:hover { background: rgba(11, 20, 48, 0.09); }
+
+.lp-btn-texto { color: inherit; padding: 9px 13px; }
+.lp-btn-texto:hover { color: var(--marca-300); }
+
+.lp-botoes { display: flex; flex-wrap: wrap; gap: 13px; margin-top: 34px; }
 
 .lp-link-cta {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
-  margin-top: 26px;
-  font-size: 14.5px;
+  gap: 8px;
+  margin-top: 30px;
+  font-size: 15px;
   font-weight: 600;
-  color: var(--marca-forte);
+  color: var(--marca-300);
   border-bottom: 1px solid transparent;
-  transition: border-color 0.18s ease, gap 0.18s ease;
+  transition: border-color 0.2s ease, gap 0.2s ease;
 }
-.lp-link-cta:hover { border-color: var(--marca); gap: 11px; }
+.lp-link-cta:hover { border-color: var(--marca); gap: 13px; }
+.fundo-claro .lp-link-cta,
+.fundo-papel .lp-link-cta { color: var(--marca-700); }
 
-/* ------------------------------------------------------------ cabeçalho */
+/* -------------------------------------------------------------- cabeçalho */
 
 .lp-topo {
   position: sticky;
   top: 0;
   z-index: 60;
-  transition: background 0.25s ease, border-color 0.25s ease, backdrop-filter 0.25s ease;
   border-bottom: 1px solid transparent;
   color: #fff;
+  transition: background 0.3s ease, border-color 0.3s ease, backdrop-filter 0.3s ease;
 }
 .lp-topo.rolado {
-  background: rgba(7, 14, 34, 0.86);
-  backdrop-filter: blur(14px);
-  border-bottom-color: rgba(255, 255, 255, 0.09);
+  background: rgba(4, 8, 26, 0.8);
+  backdrop-filter: blur(18px) saturate(150%);
+  border-bottom-color: rgba(255, 255, 255, 0.08);
 }
 .lp-topo-inner {
-  max-width: 1180px;
+  max-width: 1220px;
   margin: 0 auto;
-  padding: 14px 28px;
+  padding: 15px 28px;
   display: flex;
   align-items: center;
   gap: 20px;
 }
 
-.lp-marca {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  font-family: "Outfit", sans-serif;
-  font-size: 15.5px;
-}
+.lp-marca { display: inline-flex; align-items: center; gap: 11px; font-family: "Outfit", sans-serif; font-size: 16px; }
 .lp-marca-selo {
-  width: 33px;
-  height: 33px;
-  border-radius: 10px;
-  background: linear-gradient(135deg, var(--marca), var(--apoio));
+  width: 35px;
+  height: 35px;
+  border-radius: 11px;
+  background: linear-gradient(135deg, var(--marca-300), var(--apoio));
   display: grid;
   place-items: center;
   color: #04122a;
@@ -335,163 +446,138 @@
   font-size: 13px;
   font-family: "Outfit", sans-serif;
   flex-shrink: 0;
+  box-shadow: 0 8px 24px -10px rgba(16, 185, 129, 0.9);
 }
 
-.lp-menu {
-  display: flex;
-  gap: 4px;
-  margin-left: auto;
-}
+.lp-menu { display: flex; gap: 3px; margin-left: auto; }
 .lp-menu a {
-  padding: 8px 13px;
-  border-radius: 9px;
+  padding: 9px 14px;
+  border-radius: 10px;
   font-size: 14px;
-  color: var(--texto-claro);
-  transition: color 0.18s ease, background 0.18s ease;
+  color: var(--claro-2);
+  transition: color 0.2s ease, background 0.2s ease;
 }
-.lp-menu a:hover { color: #fff; background: rgba(255, 255, 255, 0.08); }
+.lp-menu a:hover { color: #fff; background: rgba(255, 255, 255, 0.07); }
 
 .lp-topo-acoes { display: flex; align-items: center; gap: 8px; }
 
 .lp-topo-hamburguer {
   display: none;
   margin-left: auto;
-  background: rgba(255, 255, 255, 0.1);
-  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(255, 255, 255, 0.09);
+  border: 1px solid rgba(255, 255, 255, 0.18);
   color: #fff;
-  border-radius: 10px;
-  padding: 8px;
+  border-radius: 11px;
+  padding: 9px;
   cursor: pointer;
 }
 
 .lp-menu-mobile {
   position: relative;
   z-index: 70;
-  background: rgba(7, 14, 34, 0.97);
-  backdrop-filter: blur(14px);
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
-  padding: 12px 22px 22px;
+  background: rgba(4, 8, 26, 0.97);
+  backdrop-filter: blur(18px);
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 12px 22px 24px;
   display: flex;
   flex-direction: column;
 }
 .lp-menu-mobile a {
-  padding: 13px 4px;
-  font-size: 15.5px;
-  color: var(--texto-claro);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+  padding: 14px 4px;
+  font-size: 16px;
+  color: var(--claro-2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
-.lp-menu-mobile-acoes {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-  margin-top: 18px;
-}
+.lp-menu-mobile-acoes { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
 
 /* ------------------------------------------------------------------ hero */
 
 .lp-hero {
   position: relative;
   z-index: 1;
-  margin-top: -71px;
-  padding: 148px 0 84px;
+  margin-top: -73px;
+  padding: 170px 0 96px;
   background:
-    radial-gradient(760px 400px at 78% 6%, rgba(16, 185, 129, 0.2), transparent 60%),
-    radial-gradient(700px 380px at 8% 4%, rgba(59, 130, 246, 0.2), transparent 62%),
-    linear-gradient(165deg, var(--tinta) 0%, var(--tinta-2) 56%, var(--tinta-3) 100%);
-  color: #fff;
+    radial-gradient(820px 460px at 74% 4%, rgba(16, 185, 129, 0.22), transparent 60%),
+    radial-gradient(760px 420px at 6% 2%, rgba(59, 130, 246, 0.2), transparent 62%),
+    linear-gradient(168deg, var(--tinta-950) 0%, var(--tinta-900) 40%, var(--tinta-700) 100%);
   overflow: hidden;
 }
 
 .lp-hero-grade {
   display: grid;
-  grid-template-columns: 1.03fr 0.97fr;
+  grid-template-columns: 1.02fr 0.98fr;
   gap: 40px;
   align-items: center;
 }
 
 .lp-hero h1 {
-  font-size: clamp(32px, 4.4vw, 54px);
-  line-height: 1.06;
-  max-width: 16ch;
+  font-size: clamp(36px, 5vw, 62px);
+  line-height: 1.02;
+  max-width: 15ch;
 }
 .lp-hero h1 em {
   font-style: normal;
-  background: linear-gradient(100deg, var(--marca-clara), var(--apoio));
+  background: linear-gradient(100deg, var(--marca-300) 0%, var(--marca-400) 38%, var(--apoio-400) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
 }
 .lp-lead {
-  font-size: 17px;
+  font-size: 18px;
   line-height: 1.62;
-  color: var(--texto-claro);
-  max-width: 46ch;
-  margin: 20px 0 0;
+  color: var(--claro-2);
+  max-width: 44ch;
+  margin: 24px 0 0;
 }
 
 .lp-selo {
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 15px;
+  gap: 9px;
+  padding: 8px 17px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.14);
   font-size: 12.5px;
-  color: var(--marca-clara);
-  backdrop-filter: blur(8px);
+  color: var(--marca-300);
+  backdrop-filter: blur(12px);
 }
 
-.lp-confianca {
-  list-style: none;
-  padding: 0;
-  margin: 26px 0 0;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px 22px;
-}
-.lp-confianca li {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 13.2px;
-  color: var(--texto-claro-2);
-}
-.lp-confianca svg { color: var(--marca-clara); }
+.lp-confianca { list-style: none; padding: 0; margin: 30px 0 0; display: flex; flex-wrap: wrap; gap: 9px 24px; }
+.lp-confianca li { display: inline-flex; align-items: center; gap: 8px; font-size: 13.4px; color: var(--claro-3); }
+.lp-confianca svg { color: var(--marca-400); }
 
-.lp-indicadores {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  margin-top: 58px;
-}
+/* Indicadores em vidro, com filete superior de marca. */
+.lp-indicadores { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 70px; }
 .lp-indicador {
-  background: rgba(255, 255, 255, 0.055);
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  position: relative;
+  background: rgba(255, 255, 255, 0.045);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--r);
-  padding: 17px 18px;
-  backdrop-filter: blur(8px);
+  padding: 20px;
+  backdrop-filter: blur(14px);
+  overflow: hidden;
+  transition: transform 0.24s ease, border-color 0.24s ease;
 }
-.lp-indicador b {
-  display: block;
-  font-size: 25px;
-  font-family: "Outfit", sans-serif;
-  color: #fff;
-}
-.lp-indicador span { font-size: 12.3px; color: var(--texto-claro-2); }
-
-.lp-dica-rolagem {
+.lp-indicador::before {
+  content: "";
   position: absolute;
-  left: 50%;
-  bottom: 22px;
-  transform: translateX(-50%);
-  z-index: 2;
+  inset: 0 0 auto 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--marca-400), transparent);
+  opacity: 0.75;
 }
+.lp-indicador:hover { transform: translateY(-4px); border-color: rgba(16, 185, 129, 0.34); }
+.lp-indicador b { display: block; font-size: 28px; font-family: "Outfit", sans-serif; color: #fff; }
+.lp-indicador span { font-size: 12.4px; color: var(--claro-3); }
+
+.lp-dica-rolagem { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 2; }
 .lp-dica-rolagem i {
   display: block;
-  width: 22px;
-  height: 34px;
-  border: 1.5px solid rgba(255, 255, 255, 0.3);
+  width: 23px;
+  height: 36px;
+  border: 1.5px solid rgba(255, 255, 255, 0.26);
   border-radius: 12px;
   position: relative;
 }
@@ -501,413 +587,419 @@
   left: 50%;
   top: 7px;
   width: 3px;
-  height: 7px;
+  height: 8px;
   margin-left: -1.5px;
   border-radius: 2px;
-  background: var(--marca-clara);
-  animation: lp-rolar 1.8s ease-in-out infinite;
+  background: var(--marca-400);
+  animation: lp-rolar 1.9s ease-in-out infinite;
 }
 @keyframes lp-rolar {
   0% { transform: translateY(0); opacity: 1; }
-  70% { transform: translateY(11px); opacity: 0; }
+  70% { transform: translateY(12px); opacity: 0; }
   100% { transform: translateY(0); opacity: 0; }
 }
 
-/* ------------------------------------------------------------- pilares */
+/* --------------------------------------------------------------- pilares */
 
-.lp-pilares {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-}
+.lp-pilares { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .lp-pilar {
+  position: relative;
   height: 100%;
-  background: var(--papel-2);
-  border: 1px solid var(--linha);
-  border-radius: var(--r);
-  padding: 26px 24px;
-  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--r-lg);
+  padding: 32px 28px;
+  backdrop-filter: blur(12px);
+  overflow: hidden;
+  transition: transform 0.26s cubic-bezier(0.22, 0.8, 0.3, 1), border-color 0.26s ease, box-shadow 0.26s ease;
 }
-.lp-pilar:hover {
-  transform: translateY(-4px);
-  box-shadow: var(--sombra-2);
-  border-color: var(--linha-forte);
+.lp-pilar::after {
+  content: "";
+  position: absolute;
+  inset: auto -30% -60% -30%;
+  height: 160px;
+  background: radial-gradient(ellipse at 50% 0%, rgba(16, 185, 129, 0.22), transparent 70%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
 }
+.lp-pilar:hover { transform: translateY(-6px); border-color: rgba(16, 185, 129, 0.32); box-shadow: var(--sombra-3); }
+.lp-pilar:hover::after { opacity: 1; }
 .lp-pilar-icone {
-  width: 42px;
-  height: 42px;
-  border-radius: 12px;
+  position: relative;
+  width: 46px;
+  height: 46px;
+  border-radius: 14px;
   display: grid;
   place-items: center;
-  color: #fff;
-  background: linear-gradient(135deg, var(--marca-forte), var(--marca));
-  margin-bottom: 16px;
+  color: #04231a;
+  background: linear-gradient(135deg, var(--marca-300), var(--marca-600));
+  margin-bottom: 20px;
+  box-shadow: 0 12px 30px -14px rgba(16, 185, 129, 0.95);
 }
-.lp-pilar h3 { font-size: 17px; margin-bottom: 8px; }
-.lp-pilar p { margin: 0; font-size: 14.4px; line-height: 1.62; color: var(--texto-2); }
+.lp-pilar h3 { font-size: 19px; margin-bottom: 10px; }
+.lp-pilar p { margin: 0; font-size: 15px; line-height: 1.66; color: var(--claro-2); }
 
-/* --------------------------------------------------- seção de recurso */
+/* ------------------------------------------------------ seção de recurso */
 
 .lp-feature-grade {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 56px;
+  grid-template-columns: 0.92fr 1.08fr;
+  gap: 60px;
   align-items: center;
 }
+.lp-feature-grade.invertida { grid-template-columns: 1.08fr 0.92fr; }
 .lp-feature-grade.invertida .lp-feature-texto { order: 2; }
 .lp-feature-grade.invertida .lp-feature-visual { order: 1; }
 
+/* O texto ganha um scrim próprio: a cena 3D transborda a coluna vizinha e
+   passaria por trás dele sem isso. */
+.lp-feature-texto { position: relative; z-index: 6; }
+.lp-feature-texto::before {
+  content: "";
+  position: absolute;
+  inset: -12% -18% -12% -30%;
+  background: radial-gradient(ellipse at 40% 50%, rgba(7, 14, 34, 0.86) 0%, rgba(7, 14, 34, 0) 72%);
+  pointer-events: none;
+  z-index: -1;
+}
+.fundo-noite .lp-feature-texto::before {
+  background: radial-gradient(ellipse at 40% 50%, rgba(11, 20, 46, 0.88) 0%, rgba(11, 20, 46, 0) 72%);
+}
+.fundo-abismo .lp-feature-texto::before {
+  background: radial-gradient(ellipse at 40% 50%, rgba(4, 8, 26, 0.88) 0%, rgba(4, 8, 26, 0) 72%);
+}
+.fundo-claro .lp-feature-texto::before,
+.fundo-papel .lp-feature-texto::before {
+  background: radial-gradient(ellipse at 40% 50%, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0) 72%);
+}
+
+/* ------------------------------------------------- texto acima do palco 3D
+
+   O canvas fica em z-index 5 para não ser encoberto pelos fundos das seções.
+   Todo bloco de leitura e todo alvo de clique precisa, portanto, subir acima
+   dele — senão a cena passaria por cima do texto e dos botões. */
+.lp-hero-texto,
+.lp-indicadores,
+.lp-cabecalho,
+.lp-pilares,
+.lp-passos,
+.lp-beneficios-grade,
+.lp-publicos,
+.lp-seguranca-lista,
+.lp-faq,
+.lp-cta > .revelar:not(.lp-cta-visual),
+.lp-rodape {
+  position: relative;
+  z-index: 6;
+}
+
 .lp-feature-visual { width: 100%; }
 
-.lp-beneficios {
-  list-style: none;
-  padding: 0;
-  margin: 26px 0 0;
-  display: grid;
-  gap: 11px;
-}
+.lp-beneficios { list-style: none; padding: 0; margin: 30px 0 0; display: grid; gap: 13px; }
 .lp-beneficios li {
   display: flex;
   align-items: flex-start;
-  gap: 11px;
-  font-size: 14.6px;
-  line-height: 1.5;
-  color: var(--texto);
+  gap: 12px;
+  font-size: 15.2px;
+  line-height: 1.52;
+  color: var(--claro);
 }
-.lp-beneficios svg {
-  color: var(--marca-forte);
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-.fundo-tinta .lp-beneficios li { color: var(--texto-claro); }
-.fundo-tinta .lp-beneficios svg { color: var(--marca-clara); }
+.lp-beneficios svg { color: var(--marca-400); flex-shrink: 0; margin-top: 2px; }
+.fundo-claro .lp-beneficios li,
+.fundo-papel .lp-beneficios li { color: var(--texto); }
+.fundo-claro .lp-beneficios svg,
+.fundo-papel .lp-beneficios svg { color: var(--marca-600); }
 
-/* --------------------------------------------------------------- passos */
+/* ----------------------------------------------------------------- passos */
 
-.lp-passos {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-}
+.lp-passos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
 .lp-passo {
-  height: 100%;
   position: relative;
-  background: var(--papel-2);
-  border: 1px solid var(--linha);
-  border-radius: var(--r);
-  padding: 28px 24px;
-  transition: transform 0.22s ease, box-shadow 0.22s ease;
+  height: 100%;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--r-lg);
+  padding: 34px 28px;
+  backdrop-filter: blur(12px);
+  transition: transform 0.26s ease, border-color 0.26s ease;
 }
-.lp-passo:hover { transform: translateY(-4px); box-shadow: var(--sombra-2); }
+.lp-passo:hover { transform: translateY(-6px); border-color: rgba(16, 185, 129, 0.3); }
 .lp-passo-num {
   display: grid;
   place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
-  background: linear-gradient(135deg, var(--marca-forte), var(--marca));
-  color: #fff;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
+  background: linear-gradient(135deg, var(--marca-300), var(--marca-600));
+  color: #04231a;
   font-family: "Outfit", sans-serif;
   font-weight: 700;
-  font-size: 16px;
-  margin-bottom: 16px;
+  font-size: 17px;
+  margin-bottom: 20px;
+  box-shadow: 0 12px 28px -14px rgba(16, 185, 129, 0.9);
 }
-.lp-passo h3 { font-size: 17px; margin-bottom: 8px; }
-.lp-passo p { margin: 0; font-size: 14.4px; line-height: 1.62; color: var(--texto-2); }
+.lp-passo h3 { font-size: 19px; margin-bottom: 10px; }
+.lp-passo p { margin: 0; font-size: 15px; line-height: 1.66; color: var(--claro-2); }
 
-/* ---------------------------------------------------------- benefícios */
+/* ------------------------------------------------------------ benefícios */
 
-.lp-beneficios-grade {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-}
+.lp-beneficios-grade { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
 .lp-beneficios-grade > .revelar { height: 100%; }
 
 .lp-beneficio {
   height: 100%;
   background: var(--papel);
   border: 1px solid var(--linha);
-  border-radius: var(--r);
-  padding: 24px 22px;
-  transition: transform 0.22s ease, box-shadow 0.22s ease, border-color 0.22s ease;
+  border-radius: var(--r-lg);
+  padding: 28px 26px;
+  transition: transform 0.26s ease, box-shadow 0.26s ease, border-color 0.26s ease;
 }
 .lp-beneficio:hover {
-  transform: translateY(-4px);
+  transform: translateY(-6px);
   box-shadow: var(--sombra-2);
-  border-color: var(--linha-forte);
+  border-color: rgba(16, 185, 129, 0.36);
 }
 .lp-beneficio-icone {
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
+  width: 42px;
+  height: 42px;
+  border-radius: 13px;
   display: grid;
   place-items: center;
-  color: var(--marca-forte);
-  background: var(--marca-fraca);
-  margin-bottom: 14px;
+  color: #fff;
+  background: linear-gradient(135deg, var(--marca-600), var(--marca));
+  margin-bottom: 18px;
+  box-shadow: 0 10px 24px -12px rgba(16, 185, 129, 0.8);
 }
-.lp-beneficio h3 { font-size: 16px; margin-bottom: 7px; }
-.lp-beneficio p { margin: 0; font-size: 14.2px; line-height: 1.6; color: var(--texto-2); }
+.lp-beneficio h3 { font-size: 17px; margin-bottom: 9px; color: var(--texto); }
+.lp-beneficio p { margin: 0; font-size: 14.6px; line-height: 1.64; color: var(--texto-2); }
 
-/* ------------------------------------------------------------ para quem */
+/* -------------------------------------------------------------- para quem */
 
-.lp-publicos {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
+.lp-publicos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .lp-publicos > .revelar { height: 100%; }
 
 .lp-publico {
   height: 100%;
   display: flex;
-  gap: 14px;
+  gap: 15px;
   align-items: flex-start;
-  background: var(--papel-2);
-  border: 1px solid var(--linha);
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015));
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--r);
-  padding: 20px;
-  transition: transform 0.22s ease, border-color 0.22s ease;
+  padding: 22px;
+  backdrop-filter: blur(10px);
+  transition: transform 0.24s ease, border-color 0.24s ease;
 }
-.lp-publico:hover { transform: translateY(-3px); border-color: var(--linha-forte); }
+.lp-publico:hover { transform: translateY(-4px); border-color: rgba(59, 130, 246, 0.36); }
 .lp-publico-icone {
-  width: 36px;
-  height: 36px;
+  width: 38px;
+  height: 38px;
   flex-shrink: 0;
-  border-radius: 10px;
+  border-radius: 11px;
   display: grid;
   place-items: center;
-  color: var(--apoio-forte);
-  background: var(--apoio-fraca);
+  color: var(--apoio-300);
+  background: rgba(59, 130, 246, 0.16);
 }
-.lp-publico h3 { font-size: 15.4px; margin-bottom: 5px; }
-.lp-publico p { margin: 0; font-size: 13.8px; line-height: 1.58; color: var(--texto-2); }
+.lp-publico h3 { font-size: 16px; margin-bottom: 6px; }
+.lp-publico p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--claro-2); }
 
-/* ------------------------------------------------------------ segurança */
+/* -------------------------------------------------------------- segurança */
 
-.lp-seguranca-lista { display: grid; gap: 14px; margin-top: 28px; }
+.lp-seguranca-lista { display: grid; gap: 14px; margin-top: 32px; }
 .lp-seguranca-item {
   display: flex;
-  gap: 14px;
+  gap: 15px;
   align-items: flex-start;
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: var(--r);
+  padding: 20px 22px;
+  backdrop-filter: blur(10px);
+}
+.lp-seguranca-item > span {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  color: var(--marca-300);
+  background: rgba(16, 185, 129, 0.14);
+}
+.lp-seguranca-item h3 { font-size: 16px; margin-bottom: 6px; }
+.lp-seguranca-item p { margin: 0; font-size: 14.4px; line-height: 1.62; color: var(--claro-2); }
+
+/* -------------------------------------------------------------------- FAQ */
+
+.lp-faq { display: grid; gap: 11px; }
+.lp-faq-item {
   background: var(--papel);
   border: 1px solid var(--linha);
   border-radius: var(--r);
-  padding: 18px 20px;
-}
-.lp-seguranca-item > span {
-  width: 36px;
-  height: 36px;
-  flex-shrink: 0;
-  border-radius: 10px;
-  display: grid;
-  place-items: center;
-  color: var(--marca-forte);
-  background: var(--marca-fraca);
-}
-.lp-seguranca-item h3 { font-size: 15.4px; margin-bottom: 5px; }
-.lp-seguranca-item p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--texto-2); }
-
-/* ------------------------------------------------------------------ FAQ */
-
-.lp-faq { display: grid; gap: 10px; }
-.lp-faq-item {
-  background: var(--papel-2);
-  border: 1px solid var(--linha);
-  border-radius: var(--r);
   overflow: hidden;
-  transition: border-color 0.22s ease, box-shadow 0.22s ease;
+  transition: border-color 0.24s ease, box-shadow 0.24s ease;
 }
-.lp-faq-item.aberto {
-  border-color: rgba(16, 185, 129, 0.4);
-  box-shadow: var(--sombra-2);
-}
+.lp-faq-item.aberto { border-color: rgba(16, 185, 129, 0.42); box-shadow: var(--sombra-2); }
 .lp-faq-pergunta {
   width: 100%;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 19px 22px;
+  padding: 21px 24px;
   background: none;
   border: 0;
   cursor: pointer;
   text-align: left;
   font-family: "Outfit", "IBM Plex Sans", sans-serif;
-  font-size: 15.6px;
+  font-size: 16px;
   font-weight: 600;
   color: var(--texto);
 }
-.lp-faq-pergunta svg { color: var(--marca-forte); flex-shrink: 0; }
+.lp-faq-pergunta svg { color: var(--marca-600); flex-shrink: 0; }
 .lp-faq-resposta {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.32s cubic-bezier(0.22, 0.75, 0.3, 1);
+  transition: grid-template-rows 0.34s cubic-bezier(0.22, 0.75, 0.3, 1);
 }
 .lp-faq-item.aberto .lp-faq-resposta { grid-template-rows: 1fr; }
 .lp-faq-resposta > p {
   overflow: hidden;
   margin: 0;
-  padding: 0 22px;
-  font-size: 14.8px;
-  line-height: 1.68;
+  padding: 0 24px;
+  font-size: 15px;
+  line-height: 1.7;
   color: var(--texto-2);
 }
-.lp-faq-item.aberto .lp-faq-resposta > p { padding-bottom: 21px; }
+.lp-faq-item.aberto .lp-faq-resposta > p { padding-bottom: 23px; }
 
-/* ------------------------------------------------------------ CTA final */
+/* -------------------------------------------------------------- CTA final */
 
-.lp-cta-secao { padding: 84px 0; }
+.lp-cta-secao { padding: 110px 0 120px; }
 .lp-cta {
   display: grid;
-  grid-template-columns: 1.15fr 0.85fr;
-  gap: 34px;
-  align-items: center;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: var(--r-lg);
-  padding: 46px 44px;
-  backdrop-filter: blur(10px);
+  grid-template-columns: 1fr;
+  text-align: center;
+  justify-items: center;
+  gap: 0;
+  padding: 0;
 }
 .lp-cta h2 {
-  font-size: clamp(25px, 3vw, 35px);
-  line-height: 1.16;
-  max-width: 20ch;
+  font-size: clamp(32px, 4.2vw, 54px);
+  line-height: 1.06;
+  max-width: 18ch;
 }
 .lp-cta p {
-  margin: 16px 0 0;
-  font-size: 15.6px;
-  line-height: 1.65;
-  color: var(--texto-claro);
-  max-width: 52ch;
+  margin: 22px 0 0;
+  font-size: 17px;
+  line-height: 1.66;
+  color: var(--claro-2);
+  max-width: 54ch;
 }
-.lp-cta-rodape {
-  display: block;
-  margin-top: 16px;
-  font-size: 12.8px;
-  color: var(--texto-claro-2);
-}
-.lp-cta-visual { min-height: 190px; }
+.lp-cta .lp-botoes { justify-content: center; }
+.lp-cta-rodape { display: block; margin-top: 20px; font-size: 13px; color: var(--claro-3); }
+.lp-cta-visual { margin-top: 12px; }
 
 /* ---------------------------------------------------------------- rodapé */
 
 .lp-rodape {
   position: relative;
   z-index: 1;
-  background: var(--tinta);
-  color: var(--texto-claro-2);
-  padding: 58px 0 26px;
+  background: var(--tinta-950);
+  color: var(--claro-3);
+  padding: 68px 0 28px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
 }
-.lp-rodape-grade {
-  display: grid;
-  grid-template-columns: 1.6fr repeat(4, 1fr);
-  gap: 34px;
-}
-.lp-rodape-marca { display: flex; flex-direction: column; gap: 10px; }
-.lp-rodape-marca b { color: #fff; font-family: "Outfit", sans-serif; font-size: 15.5px; }
-.lp-rodape-marca p {
-  margin: 4px 0 0;
-  font-size: 13.4px;
-  line-height: 1.62;
-  max-width: 34ch;
-}
+.lp-rodape-grade { display: grid; grid-template-columns: 1.6fr repeat(4, 1fr); gap: 36px; }
+.lp-rodape-marca { display: flex; flex-direction: column; gap: 11px; }
+.lp-rodape-marca b { color: #fff; font-family: "Outfit", sans-serif; font-size: 16px; }
+.lp-rodape-marca p { margin: 4px 0 0; font-size: 13.6px; line-height: 1.64; max-width: 34ch; }
 .lp-rodape h3 {
   font-size: 12px;
   letter-spacing: 0.11em;
   text-transform: uppercase;
   color: #fff;
-  margin-bottom: 14px;
+  margin-bottom: 15px;
 }
-.lp-rodape ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 9px; }
-.lp-rodape a { font-size: 13.6px; transition: color 0.18s ease; }
-.lp-rodape a:hover { color: var(--marca-clara); }
+.lp-rodape ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+.lp-rodape a { font-size: 13.8px; transition: color 0.2s ease; }
+.lp-rodape a:hover { color: var(--marca-300); }
 .lp-rodape-base {
   display: flex;
   flex-wrap: wrap;
   justify-content: space-between;
   gap: 10px;
-  margin-top: 42px;
-  padding-top: 22px;
-  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  margin-top: 46px;
+  padding-top: 24px;
+  border-top: 1px solid rgba(255, 255, 255, 0.07);
   font-size: 12.6px;
 }
 
-/* -------------------------------------------------- revelação por scroll */
+/* --------------------------------------------------- revelação por scroll */
 
 .lp-root .revelar {
   opacity: 0;
-  transition: opacity 0.66s cubic-bezier(0.22, 0.75, 0.3, 1),
-    transform 0.66s cubic-bezier(0.22, 0.75, 0.3, 1);
+  transition: opacity 0.78s cubic-bezier(0.22, 0.75, 0.3, 1),
+    transform 0.78s cubic-bezier(0.22, 0.75, 0.3, 1);
   will-change: opacity, transform;
 }
-.lp-root .revelar-sobe { transform: translate3d(0, 30px, 0); }
-.lp-root .revelar-escala { transform: scale(0.95) translate3d(0, 16px, 0); }
+.lp-root .revelar-sobe { transform: translate3d(0, 40px, 0); }
+.lp-root .revelar-escala { transform: scale(0.93) translate3d(0, 22px, 0); }
 .lp-root .revelar-fade { transform: none; }
 .lp-root .revelar.visivel { opacity: 1; transform: none; }
 
-/* ------------------------------------------------------------ responsivo */
+/* ------------------------------------------------------------- responsivo */
 
 @media (max-width: 1080px) {
-  .lp-menu { display: none; }
-  .lp-topo-acoes { display: none; }
+  .lp-menu, .lp-topo-acoes { display: none; }
   .lp-topo-hamburguer { display: inline-grid; place-items: center; }
 
-  .lp-hero-grade { grid-template-columns: 1fr; gap: 24px; }
+  .lp-hero-grade { grid-template-columns: 1fr; gap: 20px; }
   .lp-hero-texto { order: 2; }
   .lp-hero-visual { order: 1; }
   .lp-hero h1, .lp-lead { max-width: none; }
 
-  .lp-feature-grade { grid-template-columns: 1fr; gap: 26px; }
-  /* No mobile o visual sempre vem antes do texto: a alternância de lados
-     não existe em coluna única e inverter a ordem só confundiria a leitura. */
+  .lp-feature-grade,
+  .lp-feature-grade.invertida { grid-template-columns: 1fr; gap: 24px; }
+  /* Em coluna única a cena vem sempre antes do texto: alternar o lado não faz
+     sentido sem duas colunas e só atrapalharia a leitura. */
   .lp-feature-grade .lp-feature-texto,
   .lp-feature-grade.invertida .lp-feature-texto { order: 2; }
   .lp-feature-grade .lp-feature-visual,
   .lp-feature-grade.invertida .lp-feature-visual { order: 1; }
+  .lp-feature-texto::before { inset: -8% -10%; }
 
-  .lp-pilares,
-  .lp-passos,
-  .lp-beneficios-grade,
-  .lp-publicos { grid-template-columns: repeat(2, 1fr); }
-
-  .lp-cta { grid-template-columns: 1fr; }
-  .lp-cta-visual { display: none; }
-
-  .lp-rodape-grade { grid-template-columns: 1fr 1fr 1fr; }
+  .lp-pilares, .lp-passos, .lp-beneficios-grade, .lp-publicos { grid-template-columns: repeat(2, 1fr); }
+  .lp-rodape-grade { grid-template-columns: repeat(3, 1fr); }
   .lp-rodape-marca { grid-column: 1 / -1; }
 }
 
 @media (max-width: 720px) {
   .lp-wrap { padding: 0 18px; }
-  .lp-topo-inner { padding: 12px 18px; }
-  .lp-secao { padding: 62px 0; }
-  .lp-hero { padding: 118px 0 62px; }
+  .lp-topo-inner { padding: 13px 18px; }
+  .lp-secao { padding: 76px 0; }
+  .lp-hero { padding: 130px 0 70px; }
 
-  /* Cenas 3D menores no celular: continuam presentes, mas ocupam menos tela
-     e exigem menos do GPU. */
-  .lp-slot-alta { min-height: 280px; }
-  .lp-slot-media { min-height: 248px; }
-  .lp-slot-baixa { min-height: 170px; }
+  /* Cenas menores no celular — presentes, mas com menos área de pintura. */
+  .lp-slot-alta { min-height: 340px; }
+  .lp-slot-media { min-height: 300px; }
+  .lp-slot-baixa { min-height: 230px; }
 
-  .lp-indicadores { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 36px; }
-  .lp-indicador { padding: 14px; }
-  .lp-indicador b { font-size: 21px; }
+  .lp-indicadores { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 44px; }
+  .lp-indicador { padding: 16px; }
+  .lp-indicador b { font-size: 23px; }
 
-  .lp-pilares,
-  .lp-passos,
-  .lp-beneficios-grade,
-  .lp-publicos { grid-template-columns: 1fr; }
-
+  .lp-pilares, .lp-passos, .lp-beneficios-grade, .lp-publicos { grid-template-columns: 1fr; }
   .lp-botoes .lp-btn { flex: 1 1 100%; }
-  .lp-cta { padding: 32px 22px; }
   .lp-dica-rolagem { display: none; }
+  .lp-emenda { height: 60px; margin-top: -60px; }
 
   .lp-rodape-grade { grid-template-columns: 1fr 1fr; }
-  .lp-rodape { padding: 44px 0 22px; }
+  .lp-rodape { padding: 50px 0 24px; }
 }
 
-/* --------------------------------------------------- movimento reduzido */
+/* ---------------------------------------------------- movimento reduzido */
 
 @media (prefers-reduced-motion: reduce) {
   .lp-root .revelar { opacity: 1; transform: none; transition: none; }
@@ -916,6 +1008,7 @@
   .lp-pilar:hover,
   .lp-passo:hover,
   .lp-beneficio:hover,
-  .lp-publico:hover { transform: none; }
+  .lp-publico:hover,
+  .lp-indicador:hover { transform: none; }
   .lp-faq-resposta { transition: none; }
 }

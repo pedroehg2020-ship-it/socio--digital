@@ -35,6 +35,9 @@ import "@/styles/landing.css";
  */
 const Palco3D = lazy(() => import("@/components/landing/Palco3D"));
 
+/** Sequência de fundos das seções de funcionalidade. */
+const FUNDOS_FEATURE = ["noite", "tinta", "abismo", "tinta", "noite", "abismo", "tinta", "noite"];
+
 /** Indicador do hero: o número sobe de zero quando entra na tela. */
 function Indicador({ valor, sufixo, rotulo }) {
   const [ref, visivel] = useRevelar();
@@ -153,7 +156,8 @@ export default function Landing() {
       </section>
 
       {/* ------------------------------------------------- visão geral */}
-      <section id="funcionalidades" className="lp-secao fundo-claro">
+      <section id="funcionalidades" className="lp-secao fundo-tinta">
+        <span className="lp-grade" aria-hidden="true" />
         <div className="lp-wrap">
           <SectionHeader
             centralizado
@@ -178,12 +182,16 @@ export default function Landing() {
       </section>
 
       {/* -------------------------------- funcionalidades em seções */}
+      {/* Cada funcionalidade recebe um fundo da sequência: noite, tinta e
+          abismo se alternam para que duas seções vizinhas nunca tenham o mesmo
+          tratamento. "abismo" marca os momentos de maior impacto. */}
       {FUNCIONALIDADES.map((f, i) => (
-        <FeatureSection key={f.id} {...f} fundo={i % 2 === 0 ? "neutro" : "claro"} />
+        <FeatureSection key={f.id} {...f} fundo={FUNDOS_FEATURE[i % FUNDOS_FEATURE.length]} />
       ))}
 
       {/* ------------------------------------------------------ painel */}
-      <section id="painel" className="lp-secao fundo-tinta lp-painel-secao">
+      <section id="painel" className="lp-secao fundo-abismo lp-painel-secao">
+        <span className="lp-grade" aria-hidden="true" />
         <div className="lp-wrap">
           <div className="lp-feature-grade invertida">
             <div className="lp-feature-texto">
@@ -234,7 +242,8 @@ export default function Landing() {
       </section>
 
       {/* ------------------------------------------------ como funciona */}
-      <section id="como-funciona" className="lp-secao fundo-claro">
+      <section id="como-funciona" className="lp-secao fundo-noite">
+        <span className="lp-grade" aria-hidden="true" />
         <div className="lp-wrap">
           <SectionHeader
             centralizado
@@ -253,7 +262,7 @@ export default function Landing() {
       </section>
 
       {/* --------------------------------------------------- benefícios */}
-      <section id="beneficios" className="lp-secao fundo-neutro">
+      <section id="beneficios" className="lp-secao fundo-claro">
         <div className="lp-wrap">
           <SectionHeader
             centralizado
@@ -271,7 +280,8 @@ export default function Landing() {
       </section>
 
       {/* ----------------------------------------------------- para quem */}
-      <section id="para-quem" className="lp-secao fundo-claro">
+      <section id="para-quem" className="lp-secao fundo-noite">
+        <span className="lp-grade" aria-hidden="true" />
         <div className="lp-wrap">
           <SectionHeader
             centralizado
@@ -290,7 +300,8 @@ export default function Landing() {
       </section>
 
       {/* ------------------------------------------------------ segurança */}
-      <section id="seguranca" className="lp-secao fundo-neutro">
+      <section id="seguranca" className="lp-secao fundo-abismo">
+        <span className="lp-grade" aria-hidden="true" />
         <div className="lp-wrap">
           <div className="lp-feature-grade">
             <div className="lp-feature-texto">
@@ -334,7 +345,7 @@ export default function Landing() {
       </section>
 
       {/* ------------------------------------------------------------ FAQ */}
-      <section id="faq" className="lp-secao fundo-claro">
+      <section id="faq" className="lp-secao fundo-papel">
         <div className="lp-wrap lp-wrap-estreito">
           <SectionHeader
             centralizado

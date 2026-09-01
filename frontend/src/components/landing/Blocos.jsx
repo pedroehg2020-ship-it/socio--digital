@@ -61,6 +61,7 @@ export function FeatureSection({
 }) {
   return (
     <section id={id} className={`lp-secao lp-feature fundo-${fundo}`}>
+      {fundo !== "claro" && fundo !== "papel" ? <span className="lp-grade" aria-hidden="true" /> : null}
       <div className="lp-wrap">
         <div className={`lp-feature-grade ${inverter ? "invertida" : ""}`}>
           <div className="lp-feature-texto">
@@ -193,31 +194,43 @@ export function CTASection({
   principal = { texto: "Criar conta grátis", para: "/cadastro" },
   secundario = { texto: "Entrar", para: "/login" },
   rodape,
-  chave3d,
+  chave3d = "convite",
 }) {
   return (
-    <section className="lp-secao fundo-tinta lp-cta-secao">
+    <section className="lp-secao fundo-abismo lp-cta-secao">
+      <span className="lp-grade" aria-hidden="true" />
       <div className="lp-wrap">
-        <Revelar variante="escala">
-          <div className="lp-cta">
-            <div className="lp-cta-texto">
-              <h2>{titulo}</h2>
-              <p>{texto}</p>
-              <div className="lp-botoes">
-                <Link to={principal.para} className="lp-btn lp-btn-principal">
-                  <Icon name="bolt" size={16} /> {principal.texto}
-                </Link>
-                <Link to={secundario.para} className="lp-btn lp-btn-vidro">
-                  {secundario.texto}
-                </Link>
-              </div>
-              {rodape ? <span className="lp-cta-rodape">{rodape}</span> : null}
+        <div className="lp-cta">
+          <Revelar variante="fade">
+            <h2>{titulo}</h2>
+          </Revelar>
+          <Revelar atraso={90}>
+            <p>{texto}</p>
+          </Revelar>
+          <Revelar atraso={160}>
+            <div className="lp-botoes">
+              <Link to={principal.para} className="lp-btn lp-btn-principal lp-btn-lg">
+                <Icon name="bolt" size={17} /> {principal.texto}
+              </Link>
+              <Link to={secundario.para} className="lp-btn lp-btn-vidro lp-btn-lg">
+                {secundario.texto}
+              </Link>
             </div>
-            {chave3d ? (
-              <Slot3D chave={chave3d} icone="shield" altura="baixa" className="lp-cta-visual" />
-            ) : null}
-          </div>
-        </Revelar>
+          </Revelar>
+          {rodape ? (
+            <Revelar atraso={210}>
+              <span className="lp-cta-rodape">{rodape}</span>
+            </Revelar>
+          ) : null}
+
+          {/* A cena de encerramento fica embaixo do texto e ocupa a largura
+              toda: é o último momento de impacto antes do rodapé. */}
+          {chave3d ? (
+            <Revelar variante="escala" atraso={140} className="lp-cta-visual">
+              <Slot3D chave={chave3d} icone="bolt" altura="alta" />
+            </Revelar>
+          ) : null}
+        </div>
       </div>
     </section>
   );

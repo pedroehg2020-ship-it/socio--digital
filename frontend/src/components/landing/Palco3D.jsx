@@ -1,76 +1,104 @@
 /**
- * Palco3D — o único canvas WebGL da página inicial.
+ * Palco3D — o único contexto WebGL da página.
  *
- * Em vez de um <Canvas> por seção (o que criaria uma dezena de contextos
- * WebGL simultâneos e derrubaria a performance), existe um só canvas fixo,
- * do tamanho da janela, com `pointer-events: none`.
+ * Continua havendo um só <Canvas>, fixo e do tamanho da janela. O que mudou em
+ * relação à versão anterior:
  *
- * A cada quadro o controlador:
- *   1. pergunta ao registro qual slot está mais perto do centro da tela;
- *   2. converte o retângulo desse slot (em pixels) para coordenadas de mundo;
- *   3. move e redimensiona a composição para encaixar exatamente ali;
- *   4. faz o fade quando a seção muda, trocando a composição montada.
- *
- * Como o encaixe parte do retângulo real do DOM, o mesmo código serve para
- * desktop (coluna ao lado do texto) e mobile (bloco acima do texto) — não há
- * layout 3D duplicado.
+ *  - além de posicionar a cena no retângulo reservado pela seção, o
+ *    controlador calcula o **progresso de rolagem** daquela seção e o entrega
+ *    às cenas por `ref`. Nenhum estado de React muda por quadro;
+ *  - a troca de cena não é mais só um fade: a cena que sai recua e encolhe, a
+ *    que entra vem da frente — leitura de corte de câmera, não de crossfade;
+ *  - o mouse entra como `ref` e é consumido com força diferente por plano de
+ *    profundidade, o que produz paralaxe real entre frente, meio e fundo;
+ *  - sombras projetadas, mapa de ambiente para reflexo e tone mapping
+ *    cinematográfico, todos condicionados ao nível de qualidade do aparelho.
  */
 
 import { Canvas, useFrame, useThree } from "@react-three/fiber";
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as THREE from "three";
 import COMPOSICOES from "@/components/landing/composicoes";
-import { PALETA } from "@/components/landing/primitivas3d";
-import { movimentoReduzido, slotAtivo } from "@/components/landing/palco";
+import { Ambiente, Iluminacao, Poeira } from "@/components/landing/ambiente3d";
+import {
+  movimentoReduzido,
+  nivelQualidade,
+  slotAtivo,
+} from "@/components/landing/palco";
 
-/** Raio de referência usado ao desenhar as composições. */
-const RAIO_BASE = 1.62;
+/**
+ * Raio de referência com que as cenas são desenhadas. O encaixe no slot usa
+ * este número, e o fator de transbordo abaixo deixa a cena vazar para fora da
+ * coluna de propósito — é o que tira a página da aparência de "ilustração
+ * dentro de uma caixinha".
+ */
+const RAIO_BASE = 2.75;
+const TRANSBORDO = 1.42;
 
-function Controlador({ semMovimento }) {
+function Controlador({ semMovimento, qualidade }) {
   const { camera, size } = useThree();
   const grupo = useRef();
 
   const [chaveMontada, setChaveMontada] = useState(null);
+
   const fade = useRef(0);
   const alvoFade = useRef(0);
-  const ponteiro = useRef({ x: 0, y: 0 });
-  const primeiroEncaixe = useRef(false);
+  const mouse = useRef({ x: 0, y: 0 });
+  const mouseAlvo = useRef({ x: 0, y: 0 });
+  const progresso = useRef(0);
+  const encaixado = useRef(false);
 
   useEffect(() => {
     if (semMovimento) return undefined;
     const aoMover = (e) => {
-      ponteiro.current.x = (e.clientX / window.innerWidth - 0.5) * 2;
-      ponteiro.current.y = -(e.clientY / window.innerHeight - 0.5) * 2;
+      mouseAlvo.current.x = (e.clientX / window.innerWidth - 0.5) * 2;
+      mouseAlvo.current.y = -(e.clientY / window.innerHeight - 0.5) * 2;
+    };
+    const aoSair = () => {
+      mouseAlvo.current.x = 0;
+      mouseAlvo.current.y = 0;
     };
     window.addEventListener("pointermove", aoMover, { passive: true });
-    return () => window.removeEventListener("pointermove", aoMover);
+    window.addEventListener("pointerleave", aoSair);
+    return () => {
+      window.removeEventListener("pointermove", aoMover);
+      window.removeEventListener("pointerleave", aoSair);
+    };
   }, [semMovimento]);
 
-  useFrame((_, delta) => {
+  useFrame((state, delta) => {
     const g = grupo.current;
     if (!g) return;
 
-    const passo = Math.min(1, delta * 7);
+    const d = Math.min(delta, 0.05);
+    const passo = Math.min(1, d * 6.5);
+
+    // suaviza o mouse para o paralaxe não ficar nervoso
+    mouse.current.x += (mouseAlvo.current.x - mouse.current.x) * Math.min(1, d * 4);
+    mouse.current.y += (mouseAlvo.current.y - mouse.current.y) * Math.min(1, d * 4);
+
     const alvo = slotAtivo();
     const chaveDesejada = alvo && COMPOSICOES[alvo.chave] ? alvo.chave : null;
+    if (alvo) progresso.current = alvo.progresso;
 
-    /* ------------------------------------------------- troca de composição */
+    /* -------------------------------------------------- troca de cena */
     if (chaveDesejada !== chaveMontada) {
       alvoFade.current = 0;
-      if (fade.current < 0.04) {
+      if (fade.current < 0.05) {
         fade.current = 0;
-        primeiroEncaixe.current = false;
+        encaixado.current = false;
         setChaveMontada(chaveDesejada);
       }
     } else {
       alvoFade.current = chaveDesejada ? 1 : 0;
     }
-    fade.current += (alvoFade.current - fade.current) * Math.min(1, delta * 6);
+    fade.current += (alvoFade.current - fade.current) * Math.min(1, d * 5.5);
+    const o = THREE.MathUtils.clamp(fade.current, 0, 1);
 
-    /* --------------------------------- encaixe no retângulo reservado */
+    /* ------------------------------- encaixe no retângulo da seção */
     if (alvo) {
       const distancia = camera.position.z;
-      const alturaVisivel =
-        2 * Math.tan(((camera.fov * Math.PI) / 180) / 2) * distancia;
+      const alturaVisivel = 2 * Math.tan(((camera.fov * Math.PI) / 180) / 2) * distancia;
       const unidadesPorPixel = alturaVisivel / size.height;
 
       const centroX = alvo.rect.left + alvo.rect.width / 2;
@@ -79,54 +107,73 @@ function Controlador({ semMovimento }) {
       const alvoX = (centroX - size.width / 2) * unidadesPorPixel;
       const alvoY = -(centroY - size.height / 2) * unidadesPorPixel;
 
-      const meiaAlturaMundo = (alvo.rect.height * unidadesPorPixel) / 2;
-      const meiaLarguraMundo = (alvo.rect.width * unidadesPorPixel) / 2;
-      const alvoEscala =
-        (Math.min(meiaAlturaMundo, meiaLarguraMundo) * 0.94) / RAIO_BASE;
+      const meiaAltura = (alvo.rect.height * unidadesPorPixel) / 2;
+      const meiaLargura = (alvo.rect.width * unidadesPorPixel) / 2;
+      const escalaAlvo =
+        (Math.min(meiaAltura, meiaLargura) * TRANSBORDO) / RAIO_BASE;
 
-      if (!primeiroEncaixe.current) {
-        // O primeiro quadro após a troca já nasce no lugar certo: sem isso a
-        // composição atravessaria a tela vindo da posição anterior.
-        g.position.set(alvoX, alvoY, 0);
-        g.scale.setScalar(Math.max(0.001, alvoEscala));
-        primeiroEncaixe.current = true;
+      // a cena entra vindo da frente e recua ao sair: corte de câmera
+      const zEntrada = (1 - o) * 3.4;
+      const escalaEntrada = escalaAlvo * (0.82 + o * 0.18);
+
+      if (!encaixado.current) {
+        g.position.set(alvoX, alvoY, zEntrada);
+        g.scale.setScalar(Math.max(0.001, escalaEntrada));
+        encaixado.current = true;
       } else {
         g.position.x += (alvoX - g.position.x) * passo;
         g.position.y += (alvoY - g.position.y) * passo;
-        const e = g.scale.x + (alvoEscala - g.scale.x) * passo;
+        g.position.z += (zEntrada - g.position.z) * passo;
+        const e = g.scale.x + (escalaEntrada - g.scale.x) * passo;
         g.scale.setScalar(Math.max(0.001, e));
       }
     }
 
-    /* ------------------------------------------------- paralaxe e opacidade */
-    const inclinacaoX = semMovimento ? 0 : ponteiro.current.y * 0.09;
-    const inclinacaoY = semMovimento ? 0 : ponteiro.current.x * 0.13;
-    g.rotation.x += (inclinacaoX - g.rotation.x) * Math.min(1, delta * 3);
-    g.rotation.y += (inclinacaoY - g.rotation.y) * Math.min(1, delta * 3);
+    /* --------------------------------- inclinação geral e opacidade */
+    const inclX = semMovimento ? 0 : mouse.current.y * 0.07;
+    const inclY = semMovimento ? 0 : mouse.current.x * 0.1;
+    g.rotation.x += (inclX - g.rotation.x) * Math.min(1, d * 2.6);
+    g.rotation.y += (inclY - g.rotation.y) * Math.min(1, d * 2.6);
 
-    const o = Math.max(0, Math.min(1, fade.current));
-    g.visible = o > 0.01;
+    g.visible = o > 0.012;
+    if (!g.visible) return;
+
     g.traverse((filho) => {
-      if (filho.material) {
-        const mats = Array.isArray(filho.material) ? filho.material : [filho.material];
-        mats.forEach((m) => {
-          m.opacity = o;
+      const m = filho.material;
+      if (!m) return;
+      if (Array.isArray(m)) {
+        m.forEach((x) => {
+          x.opacity = (x.userData.opacidadeBase ?? x.opacity) * o;
         });
+      } else {
+        if (m.userData.opacidadeBase === undefined) {
+          m.userData.opacidadeBase = m.opacity;
+        }
+        m.opacity = m.userData.opacidadeBase * o;
       }
     });
   });
 
-  const Composicao = chaveMontada ? COMPOSICOES[chaveMontada] : null;
+  const Cena = chaveMontada ? COMPOSICOES[chaveMontada] : null;
 
   return (
     <>
-      <ambientLight intensity={0.62} />
-      <directionalLight position={[3.5, 5.5, 5]} intensity={1.25} />
-      <pointLight position={[-4.5, 1.5, 3]} intensity={26} color={PALETA.marca} distance={16} />
-      <pointLight position={[4.5, -1.5, 3]} intensity={24} color={PALETA.apoio} distance={16} />
+      <Ambiente />
+      <Iluminacao sombras={qualidade === "alta"} />
+      {qualidade !== "baixa" ? (
+        <Poeira quantidade={qualidade === "alta" ? 240 : 120} semMovimento={semMovimento} />
+      ) : null}
 
       <group ref={grupo} scale={0.001}>
-        {Composicao ? <Composicao semMovimento={semMovimento} /> : null}
+        {Cena ? (
+          <Cena
+            key={chaveMontada}
+            progresso={progresso}
+            mouse={mouse}
+            semMovimento={semMovimento}
+            qualidade={qualidade}
+          />
+        ) : null}
       </group>
     </>
   );
@@ -134,28 +181,56 @@ function Controlador({ semMovimento }) {
 
 export default function Palco3D() {
   const semMovimento = useMemo(() => movimentoReduzido(), []);
-  const [frameloop, setFrameloop] = useState("always");
+  const [qualidade, setQualidade] = useState(() => nivelQualidade());
+  const [ativo, setAtivo] = useState(true);
 
-  // Aba em segundo plano não precisa de quadros.
+  // Reavalia a qualidade quando a janela muda de faixa (girar o celular,
+  // arrastar a janela para outro monitor).
   useEffect(() => {
-    const aoTrocar = () => setFrameloop(document.hidden ? "never" : "always");
+    let t;
+    const aoRedimensionar = () => {
+      clearTimeout(t);
+      t = setTimeout(() => setQualidade(nivelQualidade()), 220);
+    };
+    window.addEventListener("resize", aoRedimensionar);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("resize", aoRedimensionar);
+    };
+  }, []);
+
+  // Aba em segundo plano não consome quadro nenhum.
+  useEffect(() => {
+    const aoTrocar = () => setAtivo(!document.hidden);
     document.addEventListener("visibilitychange", aoTrocar);
     return () => document.removeEventListener("visibilitychange", aoTrocar);
   }, []);
 
-  const dprMaximo =
-    typeof window !== "undefined" && window.innerWidth < 780 ? 1.4 : 1.8;
+  const dprMax = qualidade === "alta" ? 1.9 : qualidade === "media" ? 1.5 : 1;
 
   return (
     <div className="lp-palco" aria-hidden="true">
       <Canvas
-        dpr={[1, dprMaximo]}
-        frameloop={frameloop}
-        camera={{ position: [0, 0, 10], fov: 38 }}
-        gl={{ antialias: true, alpha: true, powerPreference: "high-performance" }}
-        onCreated={({ gl }) => gl.setClearColor(0x000000, 0)}
+        dpr={[1, dprMax]}
+        frameloop={ativo ? "always" : "never"}
+        shadows={qualidade === "alta" ? "soft" : false}
+        camera={{ position: [0, 0, 11], fov: 36, near: 0.1, far: 90 }}
+        gl={{
+          antialias: qualidade !== "baixa",
+          alpha: true,
+          powerPreference: "high-performance",
+          stencil: false,
+        }}
+        onCreated={({ gl }) => {
+          gl.setClearColor(0x000000, 0);
+          // ACES + espaço sRGB é o que dá a resposta de luz "de render" em vez
+          // do contraste plano do padrão do WebGL.
+          gl.toneMapping = THREE.ACESFilmicToneMapping;
+          gl.toneMappingExposure = 1.12;
+          gl.outputColorSpace = THREE.SRGBColorSpace;
+        }}
       >
-        <Controlador semMovimento={semMovimento} />
+        <Controlador semMovimento={semMovimento} qualidade={qualidade} />
       </Canvas>
     </div>
   );
