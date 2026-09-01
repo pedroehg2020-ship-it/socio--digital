@@ -4,7 +4,8 @@ import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import api, {
-  formatBRL, formatBRLShort, formatDate, formatDayShort, formatPct,
+  formatBRL, formatBRLShort, formatDate, formatDayShort, formatPct, lista,
+  objeto,
 } from "@/lib/api";
 import Icon from "@/components/Icons";
 import { Card, CardHead, Empty, Kpi, Loading, Tile } from "@/components/ui";
@@ -31,9 +32,9 @@ export default function Dashboard() {
       api.get("/overview"),
     ])
       .then(([d, a, o]) => {
-        setResumo(d.data);
-        setAlertas(a.data);
-        setOverview(o.data);
+        setResumo(objeto(d));
+        setAlertas(lista(a));
+        setOverview(objeto(o));
       })
       .catch(() => {})
       .finally(() => setCarregando(false));

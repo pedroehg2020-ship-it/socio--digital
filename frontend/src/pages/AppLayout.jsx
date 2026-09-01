@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
-import api, { formatBRLShort } from "@/lib/api";
+import api, { formatBRLShort, objeto } from "@/lib/api";
 import Icon from "@/components/Icons";
 import ChatDrawer from "@/components/ChatDrawer";
 
@@ -53,7 +53,7 @@ export default function AppLayout() {
   const [overview, setOverview] = useState(null);
 
   useEffect(() => {
-    api.get("/overview").then((r) => setOverview(r.data)).catch(() => {});
+    api.get("/overview").then((r) => setOverview(objeto(r))).catch(() => {});
   }, [pathname]);
 
   useEffect(() => {

@@ -5,7 +5,7 @@ import {
 } from "recharts";
 import api, {
   apiError, daysUntil, formatBRL, formatBRLShort, formatDate, formatDayShort,
-  monthLabel, todayISO,
+  lista, monthLabel, todayISO,
 } from "@/lib/api";
 import Icon from "@/components/Icons";
 import {
@@ -200,11 +200,11 @@ export default function Finance() {
       api.get("/customers"),
     ])
       .then(([r, p, c, d, cl]) => {
-        setReceber(r.data);
-        setPagar(p.data);
-        setCaixa(c.data);
+        setReceber(lista(r));
+        setPagar(lista(p));
+        setCaixa(lista(c));
         setDre(d.data.linhas || []);
-        setClientes(cl.data);
+        setClientes(lista(cl));
       })
       .catch(() => {})
       .finally(() => setCarregando(false));

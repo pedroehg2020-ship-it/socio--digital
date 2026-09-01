@@ -1244,9 +1244,25 @@ INDEX = FRONTEND / "index.html"
 def spa(full_path: str):
     """Fallback do React Router: qualquer rota devolve o index da SPA.
 
+    Com uma exceção importante: nada sob /api pode cair aqui.
+
+    Sem essa guarda, um caminho de API que não casa com nenhuma rota registrada
+    era atendido por este fallback e voltava como **HTTP 200 com o HTML da
+    página**. Do lado do navegador, o axios considera 200 um sucesso e entrega
+    `response.data` contendo uma string de HTML. O componente então guarda essa
+    string onde esperava uma lista e, no primeiro `.filter()`, estoura
+    "t.filter is not a function" — derrubando a árvore inteira do React e
+    deixando a tela branca.
+
+    Um 404 em JSON transforma esse mesmo caso numa promessa rejeitada, que os
+    `.catch()` já existentes tratam sem quebrar nada.
+
     O index vai com no-store para o navegador nunca reaproveitar um HTML antigo
     apontando para um bundle que já não existe (os chunks levam hash no nome).
     """
+    if full_path == "api" or full_path.startswith("api/"):
+        raise HTTPException(404, f"Rota de API inexistente: /{full_path}")
+
     if not INDEX.exists():
         raise HTTPException(500, "Frontend não compilado: rode 'npm run build' em frontend/")
     return FileResponse(

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import api, {
-  apiError, formatBRL, formatBRLShort, formatDate, todayISO,
+  apiError, formatBRL, formatBRLShort, formatDate, lista, todayISO,
 } from "@/lib/api";
 import Icon from "@/components/Icons";
 import {
@@ -24,7 +24,7 @@ export function Inventory() {
   const carregar = () => {
     setCarregando(true);
     api.get("/products")
-      .then((r) => setProdutos(r.data))
+      .then((r) => setProdutos(lista(r)))
       .catch(() => {})
       .finally(() => setCarregando(false));
   };
@@ -233,7 +233,7 @@ export function Customers() {
   const carregar = () => {
     setCarregando(true);
     api.get("/customers")
-      .then((r) => setClientes(r.data))
+      .then((r) => setClientes(lista(r)))
       .catch(() => {})
       .finally(() => setCarregando(false));
   };
@@ -399,7 +399,7 @@ export function Invoices() {
     setCarregando(true);
     Promise.all([api.get("/invoices"), api.get("/sales")])
       .then(([n, v]) => {
-        setNotas(n.data);
+        setNotas(lista(n));
         setVendas(v.data.slice(0, 40));
       })
       .catch(() => {})

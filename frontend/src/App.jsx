@@ -1,5 +1,6 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
+import FronteiraDeErro from "@/components/FronteiraDeErro";
 import { ToastProvider } from "@/components/ui";
 import Landing from "@/pages/Landing";
 import { Login, Register } from "@/pages/Auth";
@@ -26,8 +27,9 @@ function Protegida({ children }) {
 
 export default function App() {
   return (
-    <BrowserRouter>
-      <AuthProvider>
+    <FronteiraDeErro>
+      <BrowserRouter>
+        <AuthProvider>
         <ToastProvider>
           <Routes>
             <Route path="/" element={<SomentePublico><Landing /></SomentePublico>} />
@@ -55,7 +57,8 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </ToastProvider>
-      </AuthProvider>
-    </BrowserRouter>
+        </AuthProvider>
+      </BrowserRouter>
+    </FronteiraDeErro>
   );
 }

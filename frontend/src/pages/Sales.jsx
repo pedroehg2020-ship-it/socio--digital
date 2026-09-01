@@ -4,7 +4,8 @@ import {
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from "recharts";
 import api, {
-  apiError, formatBRL, formatBRLShort, formatDate, formatDayShort, todayISO,
+  apiError, formatBRL, formatBRLShort, formatDate, formatDayShort, lista,
+  objeto, todayISO,
 } from "@/lib/api";
 import Icon from "@/components/Icons";
 import {
@@ -296,10 +297,10 @@ export default function Sales() {
       api.get("/customers"),
     ])
       .then(([v, r, p, c]) => {
-        setVendas(v.data);
-        setResumo(r.data);
-        setProdutos(p.data);
-        setClientes(c.data);
+        setVendas(lista(v));
+        setResumo(objeto(r));
+        setProdutos(lista(p));
+        setClientes(lista(c));
       })
       .catch(() => {})
       .finally(() => setCarregando(false));

@@ -13,6 +13,41 @@ api.interceptors.request.use((config) => {
 
 export default api;
 
+/**
+ * Normaliza uma resposta que deveria ser uma lista.
+ *
+ * Existe por causa de um bug concreto: quando o backend devolvia HTML com
+ * status 200 para uma rota de API inexistente, o axios entregava uma *string*
+ * em `response.data`. O componente guardava a string no lugar da lista e o
+ * primeiro `.filter()` estourava "t.filter is not a function", derrubando a
+ * árvore inteira do React e deixando a tela branca.
+ *
+ * A causa foi corrigida no backend (rotas /api agora devolvem 404 em JSON).
+ * Esta função é a segunda linha de defesa: qualquer payload que não seja uma
+ * lista vira lista vazia, e a tela mostra "sem registros" em vez de sumir.
+ *
+ * Aceita tanto `[...]` quanto `{ items: [...] }` / `{ data: [...] }`, formatos
+ * usados por endpoints paginados.
+ */
+export function lista(payload) {
+  const corpo = payload && payload.data !== undefined ? payload.data : payload;
+  if (Array.isArray(corpo)) return corpo;
+  if (corpo && Array.isArray(corpo.items)) return corpo.items;
+  if (corpo && Array.isArray(corpo.results)) return corpo.results;
+  if (corpo && Array.isArray(corpo.data)) return corpo.data;
+  return [];
+}
+
+/**
+ * Mesma ideia para respostas que deveriam ser um objeto de indicadores.
+ * Evita que `resumo.receita` quebre quando vier uma string ou nulo.
+ */
+export function objeto(payload, padrao = {}) {
+  const corpo = payload && payload.data !== undefined ? payload.data : payload;
+  if (corpo && typeof corpo === "object" && !Array.isArray(corpo)) return corpo;
+  return padrao;
+}
+
 export const formatBRL = (v) =>
   new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" }).format(Number(v || 0));
 
