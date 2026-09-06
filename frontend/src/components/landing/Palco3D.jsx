@@ -58,7 +58,7 @@ export default function Palco3D() {
       <Canvas
         dpr={[1, dprMax]}
         frameloop={ativo ? "always" : "never"}
-        camera={{ position: [-3.5, 1.2, 15], fov: 38, near: 0.5, far: 3000 }}
+        camera={{ position: [18, 6, 113], fov: 46, near: 0.5, far: 2000 }}
         gl={{
           antialias: qualidade === "alta",
           alpha: true,

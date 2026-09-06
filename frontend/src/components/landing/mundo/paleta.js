@@ -62,11 +62,15 @@ export const COR = {
 COR.marinhoMedio = "#26365a";
 
 /** Névoa: sempre manhã. O fim só abre o alcance, não escurece a cor. */
+/**
+ * A cena voltou a ser escura — é a única forma de um campo aditivo brilhar.
+ * Mas o fundo NÃO é preto: é o azul-marinho da marca, que é o que impede a
+ * página de parecer um terminal e mantém a identidade no lugar.
+ */
 export const NEVOA = {
-  interior: "#cdd9e6",
-  manha: "#b9cadd",
-  cidade: "#9db4cd",
-  amplo: "#aac0d6",
+  fundo: "#070d1c",
+  meio: "#0a1428",
+  alto: "#0d1a33",
 };
 
 export default COR;

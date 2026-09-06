@@ -79,8 +79,11 @@
   background:
     /* céu de manhã, na mesma família da névoa da cena 3D: sem WebGL o
        visitante vê um ambiente coerente, não um fundo de outra paleta */
-    radial-gradient(1100px 700px at 26% 8%, rgba(255, 242, 224, 0.5), transparent 60%),
-    linear-gradient(178deg, #7fa4cd 0%, #a8c3de 38%, #cbd9e7 72%, #dde5ee 100%);
+    /* fallback sem WebGL: o mesmo azul-marinho profundo da cena, com dois
+       focos de energia — coerente com o campo, nunca preto puro */
+    radial-gradient(1100px 760px at 72% 6%, rgba(95, 216, 245, 0.14), transparent 62%),
+    radial-gradient(900px 640px at 12% 74%, rgba(160, 108, 240, 0.12), transparent 64%),
+    linear-gradient(176deg, #070d1c 0%, #0a1428 44%, #0d1a33 100%);
 }
 
 .lp-fundo-aurora,
@@ -92,8 +95,8 @@
 
 .lp-fundo-aurora {
   background:
-    radial-gradient(700px 520px at 22% 26%, rgba(255, 244, 226, 0.42), transparent 66%),
-    radial-gradient(620px 460px at 82% 70%, rgba(143, 176, 214, 0.28), transparent 68%);
+    radial-gradient(700px 520px at 24% 28%, rgba(95, 216, 245, 0.2), transparent 66%),
+    radial-gradient(620px 460px at 80% 72%, rgba(160, 108, 240, 0.16), transparent 68%);
   opacity: 0.6;
   animation: lp-aurora 26s ease-in-out infinite alternate;
 }
@@ -163,7 +166,7 @@
  * cena de manhã lê como sujeira; o marinho lê como sombra.
  */
 :root {
-  --apoio: 14, 24, 42;
+  --apoio: 5, 10, 22;
 }
 
 .lp-veu { position: relative; }
@@ -177,9 +180,9 @@
   pointer-events: none;
   background: linear-gradient(
     to right,
-    rgba(var(--apoio), 0.66) 0%,
-    rgba(var(--apoio), 0.58) 52%,
-    rgba(var(--apoio), 0.3) 82%,
+    rgba(var(--apoio), 0.62) 0%,
+    rgba(var(--apoio), 0.44) 52%,
+    rgba(var(--apoio), 0.18) 82%,
     rgba(var(--apoio), 0) 100%
   );
 }
@@ -189,9 +192,9 @@
   inset: -10% -50vw -10% -18%;
   background: linear-gradient(
     to left,
-    rgba(var(--apoio), 0.66) 0%,
-    rgba(var(--apoio), 0.58) 52%,
-    rgba(var(--apoio), 0.3) 82%,
+    rgba(var(--apoio), 0.62) 0%,
+    rgba(var(--apoio), 0.44) 52%,
+    rgba(var(--apoio), 0.18) 82%,
     rgba(var(--apoio), 0) 100%
   );
 }

@@ -60,7 +60,7 @@ export function Camera({ semMovimento, largura }) {
       nevoaPerto: MARCOS.map((m) => m.nevoa[0]),
       nevoaLonge: MARCOS.map((m) => m.nevoa[1]),
       /* A névoa deixou de ter cor única: ela viaja do dia ao crepúsculo. */
-      nevoaCor: MARCOS.map((m) => new THREE.Color(NEVOA[m.clima] ?? NEVOA.tarde)),
+      nevoaCor: MARCOS.map((m) => new THREE.Color(NEVOA[m.clima] ?? NEVOA.fundo)),
       expo: MARCOS.map((m) => m.expo),
       ultimo: MARCOS.length - 1,
     };
@@ -68,7 +68,7 @@ export function Camera({ semMovimento, largura }) {
 
   /* ------------------------------------------------- névoa e ouvintes */
   useEffect(() => {
-    const nevoa = new THREE.Fog(new THREE.Color(NEVOA.dia), 30, 200);
+    const nevoa = new THREE.Fog(new THREE.Color(NEVOA.fundo), 60, 400);
     scene.fog = nevoa;
     return () => {
       scene.fog = null;
@@ -134,8 +134,33 @@ export function Camera({ semMovimento, largura }) {
     rota.foco.getPoint(u, vFoco);
 
     vDir.copy(vFoco).sub(vPos);
-    const distancia = Math.max(1, vDir.length());
+    let distancia = Math.max(1, vDir.length());
     vDir.normalize();
+
+    /**
+     * TELAS ESTREITAS — a correção que o celular exige.
+     *
+     * Num retrato de 390 px o frustum é muito mais alto do que largo, então
+     * um campo que cabia folgado no desktop passa a transbordar pelos dois
+     * lados e a engolir o texto. Não adianta deslocar: não existe "outro
+     * lado" para onde empurrar. A solução é AFASTAR a câmera até o campo
+     * caber com folga na largura real, e só então subi-lo no quadro.
+     *
+     * O recuo é proporcional, calculado do próprio frustum, então funciona
+     * em qualquer proporção de tela sem tabela de exceções.
+     */
+    const estreitoTela = largura < 900;
+    if (estreitoTela) {
+      const raioAtual = escalar(rota.raio, t);
+      const meiaLarguraAtual =
+        Math.tan((camera.fov * GRAU) / 2) * distancia * camera.aspect;
+      const ocupacao = raioAtual / Math.max(1, meiaLarguraAtual);
+      const LIMITE = 0.62; // o campo ocupa no máximo 62% da largura
+      if (ocupacao > LIMITE) {
+        distancia *= ocupacao / LIMITE;
+        vPos.copy(vFoco).addScaledVector(vDir, -distancia);
+      }
+    }
     vDireita.copy(vDir).cross(CIMA).normalize();
     vCima.copy(vDireita).cross(vDir).normalize();
 
@@ -155,7 +180,7 @@ export function Camera({ semMovimento, largura }) {
      * Em telas estreitas não existe "outro lado". Aí o assunto sobe, o texto
      * fica embaixo, e a separação passa a ser vertical.
      */
-    const estreito = largura < 900;
+    const estreito = estreitoTela;
     const lado = estreito ? 0 : escalar(rota.lado, t);
     const raio = escalar(rota.raio, t);
 
@@ -167,7 +192,9 @@ export function Camera({ semMovimento, largura }) {
       const fracao = Math.min(0.5, (BORDA - 0.5) * 2 + 2 * meiaRegiao);
       vAlvo.addScaledVector(vDireita, -lado * fracao * meiaLargura);
     } else if (estreito) {
-      vAlvo.addScaledVector(vCima, -0.22 * meiaAltura);
+      /* sobe o campo para o terço superior: o texto ocupa os dois terços
+         de baixo, e a separação passa a ser vertical em vez de lateral */
+      vAlvo.addScaledVector(vCima, -0.46 * meiaAltura);
     }
 
     /* reação do mouse: presente, mas discreta — o protagonista é o scroll */
@@ -232,7 +259,7 @@ export function Camera({ semMovimento, largura }) {
  * fonte de luz — sancas do teto, telas, traços de interface — que é o papel
  * que o efeito deveria ter desde o começo.
  */
-export function Pos({ intensidade = 0.12, escala = 1, desfoque = false }) {
+export function Pos({ intensidade = 0.12, escala = 1, limiar = 0.94, desfoque = false }) {
   const { gl, scene, camera, size } = useThree();
 
   const composer = useMemo(() => {
@@ -245,8 +272,8 @@ export function Pos({ intensidade = 0.12, escala = 1, desfoque = false }) {
     const bloom = new UnrealBloomPass(
       new THREE.Vector2(1, 1),
       intensidade,
-      0.5,
-      0.94
+      0.85,
+      limiar
     );
     c.addPass(bloom);
 
@@ -265,7 +292,7 @@ export function Pos({ intensidade = 0.12, escala = 1, desfoque = false }) {
     c.addPass(new OutputPass());
     c.userData = { bokeh };
     return c;
-  }, [gl, scene, camera, intensidade, desfoque]);
+  }, [gl, scene, camera, intensidade, limiar, desfoque]);
 
   useEffect(() => {
     const dpr = gl.getPixelRatio();
