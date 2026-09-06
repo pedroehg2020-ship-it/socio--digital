@@ -58,6 +58,8 @@ export function Camera({ semMovimento, largura }) {
       fov: MARCOS.map((m) => m.fov),
       nevoaPerto: MARCOS.map((m) => m.nevoa[0]),
       nevoaLonge: MARCOS.map((m) => m.nevoa[1]),
+      /* A névoa deixou de ter cor única: ela viaja do dia ao crepúsculo. */
+      nevoaCor: MARCOS.map((m) => new THREE.Color(NEVOA[m.clima] ?? NEVOA.tarde)),
       expo: MARCOS.map((m) => m.expo),
       ultimo: MARCOS.length - 1,
     };
@@ -65,7 +67,7 @@ export function Camera({ semMovimento, largura }) {
 
   /* ------------------------------------------------- névoa e ouvintes */
   useEffect(() => {
-    const nevoa = new THREE.Fog(new THREE.Color(NEVOA), 30, 200);
+    const nevoa = new THREE.Fog(new THREE.Color(NEVOA.dia), 30, 200);
     scene.fog = nevoa;
     return () => {
       scene.fog = null;
@@ -99,6 +101,7 @@ export function Camera({ semMovimento, largura }) {
   const vDireita = useMemo(() => new THREE.Vector3(), []);
   const vCima = useMemo(() => new THREE.Vector3(), []);
   const vAlvo = useMemo(() => new THREE.Vector3(), []);
+  const corNevoa = useMemo(() => new THREE.Color(), []);
   const CIMA = useMemo(() => new THREE.Vector3(0, 1, 0), []);
 
   useFrame((_, delta) => {
@@ -188,9 +191,21 @@ export function Camera({ semMovimento, largura }) {
     if (scene.fog) {
       scene.fog.near += (escalar(rota.nevoaPerto, t) - scene.fog.near) * Math.min(1, d * 2.4);
       scene.fog.far += (escalar(rota.nevoaLonge, t) - scene.fog.far) * Math.min(1, d * 2.4);
+
+      const i = Math.min(rota.ultimo, Math.floor(t));
+      const j = Math.min(rota.ultimo, i + 1);
+      corNevoa.copy(rota.nevoaCor[i]).lerp(rota.nevoaCor[j], t - i);
+      scene.fog.color.lerp(corNevoa, Math.min(1, d * 2.4));
+      // O fundo acompanha a névoa: sem isso o horizonte "descola" da cena.
+      if (scene.background && scene.background.isColor) {
+        scene.background.lerp(corNevoa, Math.min(1, d * 2.4));
+      }
     }
     camera.userData.exposicao = escalar(rota.expo, t);
     camera.userData.rota = t;
+    /* Publicados para o rig de luz: progresso normalizado e lado do assunto. */
+    camera.userData.progresso = u;
+    camera.userData.lado = estreito ? 0 : lado;
   });
 
   useEffect(() => {
@@ -208,7 +223,14 @@ export function Camera({ semMovimento, largura }) {
  * Fica desligado nos aparelhos de menor capacidade, onde os brilhos aditivos
  * de `comuns.jsx` sustentam sozinhos a leitura de glow.
  */
-export function Pos({ intensidade = 0.62, escala = 1 }) {
+/**
+ * Bloom. O limiar subiu de 0.72 para 0.94 e a intensidade padrão caiu para
+ * 0.18: com o ambiente agora claro, um bloom generoso lavava a imagem inteira
+ * e comia o contraste do texto. Nesta faixa ele só alcança o que é de fato
+ * fonte de luz — sancas do teto, telas, traços de interface — que é o papel
+ * que o efeito deveria ter desde o começo.
+ */
+export function Pos({ intensidade = 0.18, escala = 1 }) {
   const { gl, scene, camera, size } = useThree();
 
   const composer = useMemo(() => {
@@ -221,8 +243,8 @@ export function Pos({ intensidade = 0.62, escala = 1 }) {
     const bloom = new UnrealBloomPass(
       new THREE.Vector2(1, 1),
       intensidade,
-      0.62,
-      0.72
+      0.5,
+      0.94
     );
     c.addPass(bloom);
     c.addPass(new OutputPass());

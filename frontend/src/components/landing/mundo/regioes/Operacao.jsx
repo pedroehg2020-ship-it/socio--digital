@@ -92,7 +92,7 @@ function Relevo({ colunas = 16, linhas = 8, parado, longe }) {
     <>
       <instancedMesh ref={malha} args={[geoCubo(), null, total]}>
         <meshStandardMaterial
-          color={COR.casco2}
+          color={COR.marinhoClaro}
           roughness={0.2}
           metalness={0.85}
           envMapIntensity={1.1}
@@ -133,7 +133,7 @@ export function Vendas({ parado = false, qualidade = "alta" }) {
       {/* curva de pedidos correndo por cima do relevo */}
       <Fluxo
         pontos={curva}
-        cor={COR.verde}
+        cor={COR.positivo}
         espessura={0.09}
         velocidade={0.55}
         segmentos={rico ? 72 : 32}
@@ -157,10 +157,10 @@ export function Vendas({ parado = false, qualidade = "alta" }) {
         largura={5}
         altura={3}
         tipo={1}
-        cor={COR.verde}
+        cor={COR.positivo}
       />
 
-      <Brilho position={[8, 6.4, 1]} cor={COR.verde} tamanho={13} opacidade={0.24} />
+      <Brilho position={[8, 6.4, 1]} cor={COR.positivo} tamanho={13} opacidade={0.24} />
       <Brilho position={[-6, -1, 0]} cor={COR.azul} tamanho={16} opacidade={0.16} />
     </group>
   );
@@ -251,7 +251,7 @@ export function Estoque({ parado = false, qualidade = "alta" }) {
       <group rotation={[0, 0.34, 0]}>
         <instancedMesh ref={malha} args={[geoCubo(), null, celulas.length]}>
           <meshStandardMaterial
-            color={COR.casco}
+            color={COR.marinho}
             roughness={0.32}
             metalness={0.8}
             envMapIntensity={0.9}
@@ -347,7 +347,7 @@ export function Clientes({ parado = false, qualidade = "alta" }) {
       e.setScalar(n.tam * (n.ativo ? 1.35 : 0.85));
       m.compose(v, q, e);
       nos.current.setMatrixAt(i, m);
-      cor.set(n.ativo ? COR.cianoClaro : COR.aco);
+      cor.set(n.ativo ? COR.cianoClaro : COR.concretoClaro);
       nos.current.setColorAt(i, cor);
     });
     nos.current.instanceMatrix.needsUpdate = true;

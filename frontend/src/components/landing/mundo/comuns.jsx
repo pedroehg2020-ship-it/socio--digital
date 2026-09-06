@@ -73,31 +73,31 @@ export function texturaPainel(tipo = 0) {
     c.height = 320;
     const g = c.getContext("2d");
 
-    g.fillStyle = "#06122c";
+    /* Fundo de vidro claro, não de tela preta. É a diferença entre ler como
+       "software corporativo" e ler como "console de nave". */
+    const base = g.createLinearGradient(0, 0, 0, 320);
+    base.addColorStop(0, "#f2f5f9");
+    base.addColorStop(1, "#dde4ee");
+    g.fillStyle = base;
     g.fillRect(0, 0, 512, 320);
 
-    // grade de fundo
-    g.strokeStyle = "rgba(120,180,255,0.13)";
+    // grade discreta, quase imperceptível a distância
+    g.strokeStyle = "rgba(80,110,150,0.09)";
     g.lineWidth = 1;
-    for (let x = 0; x <= 512; x += 32) {
+    for (let y = 76; y <= 288; y += 42) {
       g.beginPath();
-      g.moveTo(x, 0);
-      g.lineTo(x, 320);
-      g.stroke();
-    }
-    for (let y = 0; y <= 320; y += 32) {
-      g.beginPath();
-      g.moveTo(0, y);
-      g.lineTo(512, y);
+      g.moveTo(28, y);
+      g.lineTo(484, y);
       g.stroke();
     }
 
-    // barra de título
-    g.fillStyle = "rgba(34,211,238,0.16)";
-    g.fillRect(0, 0, 512, 34);
-    g.fillStyle = "rgba(165,243,252,0.75)";
-    g.fillRect(18, 14, 78, 6);
-    g.fillRect(108, 14, 34, 6);
+    // cabeçalho: um rótulo e um valor, como qualquer relatório
+    g.fillStyle = "rgba(30,48,78,0.85)";
+    g.fillRect(28, 26, 96, 9);
+    g.fillStyle = "rgba(30,48,78,0.30)";
+    g.fillRect(28, 45, 58, 7);
+    g.fillStyle = "rgba(30,48,78,0.16)";
+    g.fillRect(408, 26, 76, 26);
 
     const semente = (tipo * 977 + 13) % 1000;
     const aleatorio = (i) => {
@@ -106,39 +106,49 @@ export function texturaPainel(tipo = 0) {
     };
 
     if (tipo % 3 === 0) {
-      // série temporal preenchida
+      // série temporal — área suave, uma linha só, sem brilho
       g.beginPath();
-      g.moveTo(24, 260);
+      g.moveTo(28, 288);
       for (let i = 0; i <= 22; i += 1) {
-        const x = 24 + (i / 22) * 464;
-        const y = 240 - aleatorio(i) * 130 - i * 2.4;
+        const x = 28 + (i / 22) * 456;
+        const y = 266 - aleatorio(i) * 96 - i * 3.2;
         g.lineTo(x, y);
       }
-      g.lineTo(488, 260);
+      g.lineTo(484, 288);
       g.closePath();
-      g.fillStyle = "rgba(34,211,238,0.22)";
+      const area = g.createLinearGradient(0, 120, 0, 288);
+      area.addColorStop(0, "rgba(74,127,181,0.34)");
+      area.addColorStop(1, "rgba(74,127,181,0.02)");
+      g.fillStyle = area;
       g.fill();
-      g.strokeStyle = "rgba(165,243,252,0.95)";
-      g.lineWidth = 3;
+      g.strokeStyle = "rgba(38,86,140,0.95)";
+      g.lineWidth = 2.5;
       g.stroke();
     } else if (tipo % 3 === 1) {
-      // colunas
-      for (let i = 0; i < 16; i += 1) {
-        const h = 34 + aleatorio(i) * 168;
-        const x = 26 + i * 29;
-        g.fillStyle = i % 5 === 0 ? "rgba(52,211,153,0.9)" : "rgba(59,130,246,0.72)";
-        g.fillRect(x, 262 - h, 17, h);
-        g.fillStyle = "rgba(165,243,252,0.9)";
-        g.fillRect(x, 262 - h, 17, 3);
+      // colunas — uma única cor, com o último período destacado
+      for (let i = 0; i < 14; i += 1) {
+        const h = 30 + aleatorio(i) * 140 + i * 3;
+        const x = 32 + i * 32;
+        g.fillStyle = i === 13 ? "rgba(38,86,140,0.92)" : "rgba(109,145,187,0.55)";
+        g.fillRect(x, 288 - h, 18, h);
       }
+      g.strokeStyle = "rgba(30,48,78,0.22)";
+      g.lineWidth = 1;
+      g.beginPath();
+      g.moveTo(28, 288.5);
+      g.lineTo(484, 288.5);
+      g.stroke();
     } else {
-      // linhas de registro
-      for (let i = 0; i < 8; i += 1) {
-        const y = 60 + i * 26;
-        g.fillStyle = "rgba(127,167,224,0.4)";
-        g.fillRect(24, y, 150 + aleatorio(i) * 180, 8);
-        g.fillStyle = i % 3 === 0 ? "rgba(34,211,238,0.9)" : "rgba(127,167,224,0.22)";
-        g.fillRect(440, y - 2, 44, 12);
+      // tabela — linhas de registro com um indicador sóbrio à direita
+      for (let i = 0; i < 6; i += 1) {
+        const y = 84 + i * 34;
+        g.fillStyle = "rgba(30,48,78,0.42)";
+        g.fillRect(28, y, 120 + aleatorio(i) * 150, 8);
+        g.fillStyle = "rgba(30,48,78,0.14)";
+        g.fillRect(300, y, 90, 8);
+        g.fillStyle =
+          aleatorio(i + 40) > 0.35 ? "rgba(95,158,127,0.85)" : "rgba(181,112,95,0.8)";
+        g.fillRect(438, y - 2, 46, 12);
       }
     }
 
@@ -160,40 +170,118 @@ export const geoEsferaFina = () =>
 
 /* ----------------------------------------------------------- materiais */
 
-/** Vidro escuro dos painéis e cascos — reflete o ambiente, não brilha sozinho. */
-export function useVidro(cor = COR.casco2, opacidade = 0.5) {
+/**
+ * Vocabulário de superfícies. Todas resolvem o brilho por reflexo do mapa de
+ * ambiente e pela iluminação — nenhuma emite luz própria. Trocar um material
+ * daqui muda o acabamento da cena inteira de uma vez, que é exatamente o que
+ * se quer quando a direção de arte muda.
+ */
+
+/** Concreto e reboco arquitetônico: fosco, sem reflexo especular marcado. */
+export function useConcreto(cor = COR.concreto, extras = {}) {
+  return useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: cor,
+        roughness: 0.86,
+        metalness: 0.02,
+        envMapIntensity: 0.55,
+        ...extras,
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [cor]
+  );
+}
+
+/** Pedra polida de piso e bancada: reflexo largo e suave. */
+export function usePedra(cor = COR.pedra) {
+  return useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: cor,
+        roughness: 0.34,
+        metalness: 0.05,
+        envMapIntensity: 0.9,
+      }),
+    [cor]
+  );
+}
+
+/** Nogueira: quente, fosca, com um leve brilho de verniz. */
+export function useMadeira(cor = COR.nogueira) {
+  return useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: cor,
+        roughness: 0.52,
+        metalness: 0.0,
+        envMapIntensity: 0.55,
+      }),
+    [cor]
+  );
+}
+
+/** Metal escovado de caixilhos, pés de mesa e perfis. */
+export function useMetal(cor = COR.metalEscuro, aspereza = 0.38) {
+  return useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: cor,
+        roughness: aspereza,
+        metalness: 0.92,
+        envMapIntensity: 1.15,
+      }),
+    [cor, aspereza]
+  );
+}
+
+/**
+ * Vidro arquitetônico. Sem `transmission` de propósito: refração custa caro e
+ * a leitura que interessa aqui — superfície que reflete o céu e deixa
+ * entrever o que há atrás — se obtém com transparência e reflexo.
+ */
+export function useVidro(cor = COR.vidro, opacidade = 0.34) {
   return useMemo(
     () =>
       new THREE.MeshStandardMaterial({
         color: cor,
         transparent: true,
         opacity: opacidade,
-        roughness: 0.16,
-        metalness: 0.72,
+        roughness: 0.08,
+        metalness: 0.55,
+        envMapIntensity: 1.5,
         side: THREE.DoubleSide,
+        depthWrite: false,
       }),
     [cor, opacidade]
   );
 }
 
-/** Superfície emissiva: é ela que o bloom transforma em luz. */
-export function useEmissivo(cor = COR.ciano, forca = 2.1) {
+/**
+ * Superfície que realmente emite luz: telas, luminárias, traços de interface.
+ * A força padrão caiu de 2.1 para 0.9 — com bloom reduzido, valores altos
+ * viram borrão branco e comem o contraste do texto.
+ */
+export function useEmissivo(cor = COR.ciano, forca = 0.9) {
   return useMemo(
     () =>
       new THREE.MeshStandardMaterial({
         color: cor,
         emissive: new THREE.Color(cor),
         emissiveIntensity: forca,
-        roughness: 0.35,
-        metalness: 0.1,
-        toneMapped: false,
+        roughness: 0.4,
+        metalness: 0.05,
       }),
     [cor, forca]
   );
 }
 
-/** Linha de energia — aditiva, sem escrever profundidade. */
-export function useLinha(cor = COR.ciano, opacidade = 0.55) {
+/**
+ * Linha de interface. Deixou de ser aditiva: mistura aditiva sobre um fundo
+ * claro estoura para branco e é a principal causa de texto ilegível. Agora é
+ * transparência normal, que se comporta igual no claro e no escuro.
+ */
+export function useLinha(cor = COR.azul, opacidade = 0.5) {
   return useMemo(
     () =>
       new THREE.LineBasicMaterial({
@@ -201,7 +289,6 @@ export function useLinha(cor = COR.ciano, opacidade = 0.55) {
         transparent: true,
         opacity: opacidade,
         depthWrite: false,
-        blending: THREE.AdditiveBlending,
       }),
     [cor, opacidade]
   );
@@ -213,7 +300,13 @@ export function useLinha(cor = COR.ciano, opacidade = 0.55) {
  * Mancha de luz sempre voltada para a câmera. É o que garante a leitura de
  * "glow" mesmo nos aparelhos onde o pós-processamento fica desligado.
  */
-export function Brilho({ cor = COR.ciano, tamanho = 6, opacidade = 0.5, ...props }) {
+/**
+ * Halo suave em volta de uma fonte de luz. Continua aditivo — é a natureza do
+ * efeito — mas a opacidade padrão caiu de 0.5 para 0.18 e o `toneMapped` foi
+ * religado. Com o ambiente claro, halo aditivo sem tone mapping satura para
+ * branco puro e é a causa mais comum de texto ilegível por cima.
+ */
+export function Brilho({ cor = COR.ciano, tamanho = 4, opacidade = 0.18, ...props }) {
   const material = useMemo(
     () =>
       new THREE.SpriteMaterial({
@@ -223,7 +316,6 @@ export function Brilho({ cor = COR.ciano, tamanho = 6, opacidade = 0.5, ...props
         opacity: opacidade,
         blending: THREE.AdditiveBlending,
         depthWrite: false,
-        toneMapped: false,
       }),
     [cor, opacidade]
   );
@@ -234,8 +326,8 @@ export function Brilho({ cor = COR.ciano, tamanho = 6, opacidade = 0.5, ...props
 export function Anel({
   raio = 4,
   espessura = 0.045,
-  cor = COR.ciano,
-  opacidade = 0.75,
+  cor = COR.azul,
+  opacidade = 0.4,
   segmentos = 72,
   ...props
 }) {

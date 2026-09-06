@@ -79,7 +79,7 @@ function Saldo({ quantidade = 22, parado, longe }) {
   return (
     <>
       <instancedMesh ref={malha} args={[geoCubo(), null, quantidade]}>
-        <meshStandardMaterial color={COR.casco2} roughness={0.22} metalness={0.86} />
+        <meshStandardMaterial color={COR.marinhoClaro} roughness={0.22} metalness={0.86} />
       </instancedMesh>
       <instancedMesh ref={topo} args={[geoCubo(), null, quantidade]}>
         <meshBasicMaterial color={COR.cianoClaro} toneMapped={false} />
@@ -119,9 +119,9 @@ export function Financeiro({ parado = false, qualidade = "alta" }) {
     <group position={pos}>
       {/* anel de entrada — a receber */}
       <group ref={entrada} position={[-8.4, 0.4, 0]}>
-        <Anel raio={3.5} espessura={0.09} cor={COR.verde} opacidade={0.9} />
+        <Anel raio={3.5} espessura={0.09} cor={COR.positivo} opacidade={0.9} />
         <Anel raio={2.6} espessura={0.04} cor={COR.cianoClaro} opacidade={0.5} />
-        <Brilho cor={COR.verde} tamanho={9} opacidade={0.3} />
+        <Brilho cor={COR.positivo} tamanho={9} opacidade={0.3} />
       </group>
 
       {/* anel de saída — a pagar */}
@@ -146,7 +146,7 @@ export function Financeiro({ parado = false, qualidade = "alta" }) {
         <Fluxo
           key={`v-${i}`}
           pontos={pts.map((p) => [p[0], p[1] - 2.6, p[2] * -1])}
-          cor={COR.violeta}
+          cor={COR.azul}
           espessura={0.038}
           opacidade={0.55}
           velocidade={0.34 + i * 0.08}
@@ -213,7 +213,7 @@ export function Agenda({ parado = false, qualidade = "alta" }) {
       e.set(1.5, 0.09, 0.5);
       m.compose(v, q, e);
       marcas.current.setMatrixAt(i, m);
-      cor.set(d.vencido ? COR.ambar : d.semana ? COR.cianoClaro : COR.aco);
+      cor.set(d.vencido ? COR.ambar : d.semana ? COR.cianoClaro : COR.concretoClaro);
       marcas.current.setColorAt(i, cor);
     });
     hastes.current.instanceMatrix.needsUpdate = true;
@@ -240,7 +240,7 @@ export function Agenda({ parado = false, qualidade = "alta" }) {
     <group position={pos} rotation={[0, 0.5, 0]}>
       <group ref={grupo}>
         <instancedMesh ref={hastes} args={[geoCubo(), null, total]}>
-          <meshStandardMaterial color={COR.casco2} roughness={0.28} metalness={0.8} />
+          <meshStandardMaterial color={COR.marinhoClaro} roughness={0.28} metalness={0.8} />
         </instancedMesh>
         <instancedMesh ref={marcas} args={[geoCubo(), null, total]}>
           <meshBasicMaterial toneMapped={false} />

@@ -1,400 +1,316 @@
 /**
- * Regiões de inteligência: Radar e IA.
+ * INTELIGÊNCIA — o quarto e último termo da narrativa.
  *
- *   Radar → um disco horizontal com anéis concêntricos, varredura girando e
- *           sinais que acendem quando o feixe passa por cima. É a leitura
- *           literal do "radar inteligente": alguém varrendo os dados atrás do
- *           problema antes de você.
- *   IA    → o objeto terminal da viagem. Um núcleo emissivo dentro de uma
- *           casca de nós ligados, alimentado por fluxos que vêm de longe.
- *           A câmera passa cinco seções se aproximando dele.
+ * As duas peças aqui foram refeitas do zero, porque as anteriores eram
+ * exatamente o que o projeto não quer ser:
  *
- * A IA é a região mais pesada da cena, e de propósito: ela só entra no campo
- * de visão na segunda metade da página, quando as regiões da primeira metade
- * já saíram do enquadramento.
+ *  · O RADAR era um disco com um setor de varredura girando e sinais que
+ *    acendiam quando o feixe passava. É a interface de um videogame. No lugar
+ *    entra o que a função de fato é num sistema de gestão: uma MESA DE
+ *    MONITORAMENTO. Uma superfície horizontal de vidro sobre a qual paira uma
+ *    matriz de indicadores, e onde poucas posições — as que exigem atenção —
+ *    se levantam acima do plano. A leitura é "algo está sendo observado e
+ *    algumas coisas pedem decisão", não "sonar".
+ *
+ *  · O NÚCLEO DE IA era uma casca neural de 96 nós com um enxame de 460
+ *    partículas. Cérebro e esfera de neon, os dois vetos explícitos. No lugar
+ *    entra uma CONVERGÊNCIA: as seis áreas da empresa chegam como feixes
+ *    ordenados de lâminas de vidro, giram em torno de um eixo comum e se
+ *    consolidam num volume central único e sólido. O que se lê é integração
+ *    de dados — matéria vindo de vários lugares e virando uma coisa só.
+ *
+ * Nenhuma das duas usa cor fora da paleta arquitetônica, e o emissivo se
+ * limita ao que seria de fato uma tela.
  */
 
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
 import { COR } from "@/components/landing/mundo/paleta";
+import { REGIOES } from "@/components/landing/mundo/rota";
 import {
   Anel,
-  Brilho,
-  Fluxo,
-  Grade,
   Painel,
-  geoEsferaFina,
-  texturaBrilho,
+  useConcreto,
+  useEmissivo,
   useLonge,
+  useMetal,
+  usePedra,
+  useVidro,
 } from "@/components/landing/mundo/comuns";
-import { REGIOES } from "@/components/landing/mundo/rota";
 
 function ruido(i, s = 1) {
-  const v = Math.sin(i * 41.7 + s * 83.3) * 43758.5453;
+  const v = Math.sin(i * 127.1 + s * 311.7) * 43758.5453;
   return v - Math.floor(v);
 }
 
-/* ============================================================ RADAR === */
+/* ------------------------------------------------- mesa de monitoramento */
 
-export function Radar({ parado = false, qualidade = "alta" }) {
-  const { pos } = REGIOES.radar;
-  const longe = useLonge(pos, 160);
-  const rico = qualidade === "alta";
-  const totalSinais = rico ? 26 : 14;
-
-  const varredura = useRef();
-  const sinais = useRef();
-  const matSinais = useRef();
-
-  /** Sinais em coordenadas polares — o ângulo é o que o feixe vai cruzar. */
-  const alvos = useMemo(
+/**
+ * Matriz de indicadores sobre uma mesa de vidro. A esmagadora maioria das
+ * posições fica rente ao plano, em cinza; umas poucas se elevam e ganham
+ * âmbar. É essa proporção — quase tudo quieto, pouca coisa pedindo atenção —
+ * que faz a peça significar "monitoramento" em vez de "efeito".
+ */
+function Matriz({ colunas = 18, linhas = 12, parado, longe }) {
+  const malha = useRef();
+  const material = useMemo(
     () =>
-      Array.from({ length: totalSinais }, (_, i) => {
-        const a = ruido(i, 1) * Math.PI * 2;
-        const r = 2.4 + ruido(i, 2) * 10.2;
-        return {
-          a,
-          p: [Math.cos(a) * r, ruido(i, 5) * 0.6 - 0.3, Math.sin(a) * r],
-          grave: ruido(i, 7) > 0.78,
-          tam: 0.2 + ruido(i, 9) * 0.24,
-        };
+      new THREE.MeshStandardMaterial({
+        color: COR.concretoClaro,
+        roughness: 0.42,
+        metalness: 0.5,
+        envMapIntensity: 1.1,
       }),
-    [totalSinais]
+    []
   );
+
+  const celulas = useMemo(() => {
+    const lista = [];
+    for (let c = 0; c < colunas; c += 1) {
+      for (let l = 0; l < linhas; l += 1) {
+        const i = c * linhas + l;
+        const alerta = ruido(i, 5) > 0.9;
+        lista.push({
+          x: (c - (colunas - 1) / 2) * 0.92,
+          z: (l - (linhas - 1) / 2) * 0.92,
+          alerta,
+          base: alerta ? 1.1 + ruido(i, 9) * 2.4 : 0.06 + ruido(i, 7) * 0.16,
+          fase: ruido(i, 13) * Math.PI * 2,
+        });
+      }
+    }
+    return lista;
+  }, [colunas, linhas]);
+
+  const cor = useMemo(() => new THREE.Color(), []);
+  const corCalma = useMemo(() => new THREE.Color(COR.concretoClaro), []);
+  const corAlerta = useMemo(() => new THREE.Color(COR.ambar), []);
 
   useLayoutEffect(() => {
     const m = new THREE.Matrix4();
-    const v = new THREE.Vector3();
     const q = new THREE.Quaternion();
-    const e = new THREE.Vector3();
-    const cor = new THREE.Color();
-    alvos.forEach((s, i) => {
-      v.set(s.p[0], s.p[1], s.p[2]);
-      e.setScalar(s.tam);
-      m.compose(v, q, e);
-      sinais.current.setMatrixAt(i, m);
-      cor.set(s.grave ? COR.ambar : COR.cianoClaro);
-      sinais.current.setColorAt(i, cor);
+    const p = new THREE.Vector3();
+    const s = new THREE.Vector3();
+    celulas.forEach((c, i) => {
+      p.set(c.x, c.base / 2, c.z);
+      s.set(0.62, c.base, 0.62);
+      m.compose(p, q, s);
+      malha.current.setMatrixAt(i, m);
+      malha.current.setColorAt(i, c.alerta ? corAlerta : corCalma);
     });
-    sinais.current.instanceMatrix.needsUpdate = true;
-    if (sinais.current.instanceColor) sinais.current.instanceColor.needsUpdate = true;
-  }, [alvos]);
+    malha.current.instanceMatrix.needsUpdate = true;
+    if (malha.current.instanceColor) malha.current.instanceColor.needsUpdate = true;
+  }, [celulas, corAlerta, corCalma]);
 
   const m = useMemo(() => new THREE.Matrix4(), []);
-  const v = useMemo(() => new THREE.Vector3(), []);
   const q = useMemo(() => new THREE.Quaternion(), []);
-  const e = useMemo(() => new THREE.Vector3(), []);
+  const p = useMemo(() => new THREE.Vector3(), []);
+  const s = useMemo(() => new THREE.Vector3(), []);
+  const t = useRef(0);
 
-  useFrame((state, delta) => {
-    if (parado || longe.current) return;
-    const t = state.clock.elapsedTime;
-    const angulo = (t * 0.55) % (Math.PI * 2);
-
-    if (varredura.current) varredura.current.rotation.z = -angulo;
-
-    // cada sinal cresce quando o feixe acabou de passar e decai depois
-    if (sinais.current) {
-      alvos.forEach((s, i) => {
-        let d = angulo - s.a;
-        while (d < 0) d += Math.PI * 2;
-        const brilho = Math.exp(-d * 1.9);
-        const escala = s.tam * (1 + brilho * 2.1);
-        v.set(s.p[0], s.p[1], s.p[2]);
-        e.setScalar(escala);
-        m.compose(v, q, e);
-        sinais.current.setMatrixAt(i, m);
-      });
-      sinais.current.instanceMatrix.needsUpdate = true;
-    }
+  useFrame((_, delta) => {
+    if (parado || longe.current || !malha.current) return;
+    t.current += Math.min(delta, 0.05);
+    /* Só as posições em alerta respiram. O resto fica absolutamente parado —
+       movimento generalizado é o que faz uma cena parecer inquieta. */
+    celulas.forEach((c, i) => {
+      if (!c.alerta) return;
+      const h = c.base * (1 + Math.sin(t.current * 1.3 + c.fase) * 0.14);
+      p.set(c.x, h / 2, c.z);
+      s.set(0.62, h, 0.62);
+      m.compose(p, q, s);
+      malha.current.setMatrixAt(i, m);
+    });
+    malha.current.instanceMatrix.needsUpdate = true;
   });
 
-  /** Retículas radiais do disco. */
-  const reticulas = useMemo(() => {
-    const pts = [];
-    for (let i = 0; i < 12; i += 1) {
-      const a = (i / 12) * Math.PI * 2;
-      pts.push(0, 0, 0, Math.cos(a) * 12.6, 0, Math.sin(a) * 12.6);
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(pts, 3));
-    return g;
-  }, []);
+  return (
+    <instancedMesh
+      ref={malha}
+      args={[null, null, celulas.length]}
+      material={material}
+      frustumCulled
+    >
+      <boxGeometry args={[1, 1, 1]} />
+    </instancedMesh>
+  );
+}
+
+export function Radar({ parado = false, qualidade = "alta" }) {
+  const pos = REGIOES.radar.pos;
+  const longe = useLonge(pos);
+  const rico = qualidade === "alta";
+
+  const tampo = useVidro(COR.vidroClaro, 0.3);
+  const moldura = useMetal(COR.metalEscuro, 0.3);
+  const pedra = usePedra(COR.pedra);
 
   return (
     <group position={pos}>
-      {/* disco: anéis concêntricos deitados */}
-      <group rotation={[Math.PI / 2, 0, 0]}>
-        {[3.6, 6.6, 9.6, 12.6].map((r, i) => (
-          <Anel
-            key={r}
-            raio={r}
-            espessura={i === 3 ? 0.05 : 0.025}
-            cor={COR.ciano}
-            opacidade={0.55 - i * 0.08}
-          />
-        ))}
+      {/* base pesada: a peça precisa estar apoiada em algo, não flutuando */}
+      <mesh material={pedra} position={[0, -4.4, 0]}>
+        <boxGeometry args={[13, 1.4, 10]} />
+      </mesh>
+      <mesh material={moldura} position={[0, -2.4, 0]}>
+        <boxGeometry args={[2.4, 3.2, 2.4]} />
+      </mesh>
 
-        {/* setor de varredura */}
-        <group ref={varredura}>
-          <mesh>
-            <circleGeometry args={[12.6, 40, 0, Math.PI / 3.4]} />
-            <meshBasicMaterial
-              color={COR.ciano}
-              transparent
-              opacity={0.14}
-              blending={THREE.AdditiveBlending}
-              depthWrite={false}
-              side={THREE.DoubleSide}
-              toneMapped={false}
-            />
-          </mesh>
-          {/* borda de ataque do feixe */}
-          <mesh position={[6.3, 0, 0.02]}>
-            <planeGeometry args={[12.6, 0.09]} />
-            <meshBasicMaterial
-              color={COR.cianoClaro}
-              transparent
-              opacity={0.9}
-              blending={THREE.AdditiveBlending}
-              depthWrite={false}
-              toneMapped={false}
-            />
-          </mesh>
-        </group>
+      {/* mesa de vidro e sua moldura */}
+      <mesh material={tampo} rotation={[-Math.PI / 2, 0, 0]}>
+        <planeGeometry args={[17.4, 11.6]} />
+      </mesh>
+      <mesh material={moldura} position={[0, -0.16, 0]}>
+        <boxGeometry args={[17.8, 0.24, 12]} />
+      </mesh>
+
+      <group position={[0, 0.05, 0]}>
+        <Matriz colunas={rico ? 18 : 12} linhas={rico ? 12 : 8} parado={parado} longe={longe} />
       </group>
 
-      <lineSegments geometry={reticulas}>
-        <lineBasicMaterial
-          color={COR.azul}
-          transparent
-          opacity={0.2}
-          depthWrite={false}
-          blending={THREE.AdditiveBlending}
-        />
-      </lineSegments>
-
-      <instancedMesh ref={sinais} args={[geoEsferaFina(), null, totalSinais]}>
-        <meshBasicMaterial ref={matSinais} transparent opacity={0.95} toneMapped={false} />
-      </instancedMesh>
-
-      {/* mastro central do radar */}
-      <mesh position={[0, 2.6, 0]}>
-        <cylinderGeometry args={[0.12, 0.2, 5.2, 8]} />
-        <meshStandardMaterial color={COR.casco2} roughness={0.3} metalness={0.9} />
-      </mesh>
-      <Brilho position={[0, 5.4, 0]} cor={COR.ciano} tamanho={7} opacidade={0.5} />
-      <Brilho cor={COR.azul} tamanho={26} opacidade={0.12} />
-
-      <Painel
-        position={[-8.4, 5.4, 4.6]}
-        rotation={[0, 0.85, 0]}
-        largura={4.8}
-        altura={2.9}
-        tipo={2}
-        cor={COR.ambar}
-      />
+      {/* dois painéis de leitura na cabeceira, como numa sala de controle */}
+      {rico ? (
+        <>
+          <Painel position={[-5.2, 4.4, -5.6]} rotation={[0, 0.24, 0]} largura={6} altura={3.6} tipo={0} />
+          <Painel position={[1.8, 4.4, -5.9]} rotation={[0, -0.1, 0]} largura={6} altura={3.6} tipo={2} />
+        </>
+      ) : null}
     </group>
   );
 }
 
-/* =============================================================== IA === */
+/* --------------------------------------------------- núcleo de integração */
 
-/** Enxame que orbita o núcleo — o "processamento" visível. */
-function Enxame({ quantidade = 420, parado, longe }) {
-  const ref = useRef();
+/**
+ * Um afluente: o feixe de lâminas de vidro que traz uma área da empresa até o
+ * centro. As lâminas ficam mais próximas e menores conforme se aproximam do
+ * núcleo — a informação chega dispersa e sai consolidada, e a geometria diz
+ * isso sozinha.
+ */
+function Afluente({ angulo, lâminas = 9, parado, longe }) {
+  const malha = useRef();
+  const grupo = useRef();
 
-  const geo = useMemo(() => {
-    const p = new Float32Array(quantidade * 3);
-    for (let i = 0; i < quantidade; i += 1) {
-      const a = ruido(i, 1) * Math.PI * 2;
-      const b = Math.acos(2 * ruido(i, 2) - 1);
-      const r = 4.4 + ruido(i, 3) * 7.4;
-      p[i * 3] = Math.sin(b) * Math.cos(a) * r;
-      p[i * 3 + 1] = Math.cos(b) * r * 0.8;
-      p[i * 3 + 2] = Math.sin(b) * Math.sin(a) * r;
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.BufferAttribute(p, 3));
-    return g;
-  }, [quantidade]);
-
-  const mat = useMemo(
+  const material = useMemo(
     () =>
-      new THREE.PointsMaterial({
-        size: 0.32,
-        map: texturaBrilho(),
-        color: new THREE.Color(COR.cianoClaro),
+      new THREE.MeshStandardMaterial({
+        color: COR.azulClaro,
         transparent: true,
-        opacity: 0.85,
+        opacity: 0.5,
+        roughness: 0.1,
+        metalness: 0.4,
+        envMapIntensity: 1.4,
+        side: THREE.DoubleSide,
         depthWrite: false,
-        blending: THREE.AdditiveBlending,
-        toneMapped: false,
       }),
     []
   );
 
-  useFrame((state, delta) => {
-    if (parado || longe.current || !ref.current) return;
-    const d = Math.min(delta, 0.05);
-    ref.current.rotation.y += d * 0.13;
-    ref.current.rotation.x = Math.sin(state.clock.elapsedTime * 0.2) * 0.14;
-  });
-
-  return <points ref={ref} geometry={geo} material={mat} />;
-}
-
-export function IA({ parado = false, qualidade = "alta" }) {
-  const { pos } = REGIOES.ia;
-  const longe = useLonge(pos, 190);
-  const rico = qualidade === "alta";
-  const totalNos = rico ? 96 : 48;
-
-  const casca = useRef();
-  const nucleo = useRef();
-  const nos = useRef();
-
-  const pontos = useMemo(() => {
+  const dados = useMemo(() => {
     const lista = [];
-    const phi = Math.PI * (3 - Math.sqrt(5));
-    for (let i = 0; i < totalNos; i += 1) {
-      const y = 1 - (i / (totalNos - 1)) * 2;
-      const r = Math.sqrt(Math.max(0, 1 - y * y));
-      const th = phi * i;
-      const raio = 8.6;
-      lista.push([Math.cos(th) * r * raio, y * raio, Math.sin(th) * r * raio]);
+    for (let i = 0; i < lâminas; i += 1) {
+      const f = i / (lâminas - 1); // 0 = longe, 1 = junto ao núcleo
+      lista.push({
+        raio: 21 - f * 14,
+        largura: 5.4 - f * 3.6,
+        altura: 3.4 - f * 2.2,
+        y: (1 - f) * (ruido(i, 3) - 0.5) * 5,
+      });
     }
     return lista;
-  }, [totalNos]);
-
-  const ligacoes = useMemo(() => {
-    const seg = [];
-    const limite = rico ? 3.4 : 4.4;
-    for (let i = 0; i < pontos.length; i += 1) {
-      for (let j = i + 1; j < pontos.length; j += 1) {
-        const a = pontos[i];
-        const b = pontos[j];
-        const dx = a[0] - b[0];
-        const dy = a[1] - b[1];
-        const dz = a[2] - b[2];
-        if (dx * dx + dy * dy + dz * dz < limite * limite) {
-          seg.push(a[0], a[1], a[2], b[0], b[1], b[2]);
-        }
-      }
-    }
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(seg, 3));
-    return g;
-  }, [pontos, rico]);
+  }, [lâminas]);
 
   useLayoutEffect(() => {
     const m = new THREE.Matrix4();
-    const v = new THREE.Vector3();
     const q = new THREE.Quaternion();
-    const e = new THREE.Vector3();
-    pontos.forEach((p, i) => {
-      v.set(p[0], p[1], p[2]);
-      e.setScalar(0.19);
-      m.compose(v, q, e);
-      nos.current.setMatrixAt(i, m);
+    const e = new THREE.Euler();
+    const p = new THREE.Vector3();
+    const s = new THREE.Vector3();
+    dados.forEach((d, i) => {
+      e.set(0, angulo, 0);
+      q.setFromEuler(e);
+      p.set(Math.cos(angulo) * d.raio, d.y, Math.sin(angulo) * d.raio);
+      s.set(d.largura, d.altura, 0.1);
+      m.compose(p, q, s);
+      malha.current.setMatrixAt(i, m);
     });
-    nos.current.instanceMatrix.needsUpdate = true;
-  }, [pontos]);
+    malha.current.instanceMatrix.needsUpdate = true;
+  }, [dados, angulo]);
 
-  useFrame((state, delta) => {
-    if (parado || longe.current) return;
-    const d = Math.min(delta, 0.05);
-    if (casca.current) {
-      casca.current.rotation.y += d * 0.055;
-      casca.current.rotation.z += d * 0.02;
-    }
-    if (nucleo.current) {
-      const p = 1 + Math.sin(state.clock.elapsedTime * 1.3) * 0.06;
-      nucleo.current.scale.setScalar(p);
-      nucleo.current.rotation.y -= d * 0.22;
-    }
+  useFrame((_, delta) => {
+    if (parado || longe.current || !grupo.current) return;
+    grupo.current.rotation.y += Math.min(delta, 0.05) * 0.045;
   });
 
-  /** Seis afluentes vindo de fora do campo de visão para dentro do núcleo. */
-  const afluentes = useMemo(
-    () =>
-      [0, 1, 2, 3, 4, 5].map((i) => {
-        const a = (i / 6) * Math.PI * 2;
-        const r = 22;
-        return [
-          [Math.cos(a) * r, Math.sin(i * 1.3) * 9, Math.sin(a) * r],
-          [Math.cos(a) * 13, Math.sin(i * 1.3) * 4.5, Math.sin(a) * 13],
-          [Math.cos(a + 0.4) * 6, Math.sin(i) * 1.6, Math.sin(a + 0.4) * 6],
-          [0, 0, 0],
-        ];
-      }),
+  return (
+    <group ref={grupo}>
+      <instancedMesh ref={malha} args={[null, null, dados.length]} material={material} frustumCulled>
+        <boxGeometry args={[1, 1, 1]} />
+      </instancedMesh>
+    </group>
+  );
+}
+
+export function IA({ parado = false, qualidade = "alta" }) {
+  const pos = REGIOES.ia.pos;
+  const longe = useLonge(pos, 320);
+  const rico = qualidade === "alta";
+  const medio = qualidade !== "baixa";
+
+  const metal = useMetal(COR.metal, 0.22);
+  const concreto = useConcreto(COR.concretoClaro, { roughness: 0.6, metalness: 0.2 });
+  const vidro = useVidro(COR.vidroClaro, 0.4);
+  /* O único emissivo da peça, e em intensidade de tela, não de lâmpada. */
+  const nucleo = useEmissivo(COR.cianoClaro, 0.55);
+
+  const eixo = useRef();
+  useFrame((_, delta) => {
+    if (parado || longe.current || !eixo.current) return;
+    eixo.current.rotation.y -= Math.min(delta, 0.05) * 0.03;
+  });
+
+  /* Seis afluentes: as seis áreas que a página apresentou até aqui. */
+  const angulos = useMemo(
+    () => Array.from({ length: 6 }, (_, i) => (i / 6) * Math.PI * 2),
     []
   );
 
   return (
     <group position={pos}>
-      {/* núcleo */}
-      <group ref={nucleo}>
-        <mesh>
-          <icosahedronGeometry args={[2.9, 3]} />
-          <meshStandardMaterial
-            color={COR.cianoClaro}
-            emissive={new THREE.Color(COR.ciano)}
-            emissiveIntensity={2.9}
-            roughness={0.25}
-            toneMapped={false}
-          />
+      {/* volume central consolidado: sólido, facetado, nada de esfera lisa */}
+      <group ref={eixo}>
+        <mesh material={metal}>
+          <octahedronGeometry args={[5.2, 1]} />
         </mesh>
-        <mesh>
-          <icosahedronGeometry args={[4.1, 1]} />
-          <meshStandardMaterial
-            color={COR.violeta}
-            wireframe
-            transparent
-            opacity={0.5}
-            toneMapped={false}
-          />
+        <mesh material={nucleo} scale={0.78}>
+          <octahedronGeometry args={[5.2, 1]} />
+        </mesh>
+        <mesh material={vidro} scale={1.42}>
+          <octahedronGeometry args={[5.2, 0]} />
         </mesh>
       </group>
 
-      <Brilho cor={COR.ciano} tamanho={22} opacidade={0.4} />
-      <Brilho cor={COR.violeta} tamanho={42} opacidade={0.12} />
+      {/* pedestal: ancora a peça no terreno em vez de deixá-la flutuando */}
+      <mesh material={concreto} position={[0, -13, 0]}>
+        <cylinderGeometry args={[7.4, 9.6, 3.2, 6]} />
+      </mesh>
+      <mesh material={metal} position={[0, -8.4, 0]}>
+        <cylinderGeometry args={[1.5, 1.5, 6.2, 8]} />
+      </mesh>
 
-      {/* casca neural */}
-      <group ref={casca}>
-        <instancedMesh ref={nos} args={[geoEsferaFina(), null, totalNos]}>
-          <meshBasicMaterial color={COR.cianoClaro} toneMapped={false} />
-        </instancedMesh>
-        <lineSegments geometry={ligacoes}>
-          <lineBasicMaterial
-            color={COR.azul}
-            transparent
-            opacity={0.22}
-            depthWrite={false}
-            blending={THREE.AdditiveBlending}
-          />
-        </lineSegments>
-      </group>
+      {angulos.map((a, i) =>
+        i < (rico ? 6 : medio ? 4 : 3) ? (
+          <Afluente key={a} angulo={a} lâminas={rico ? 9 : 6} parado={parado} longe={longe} />
+        ) : null
+      )}
 
-      {afluentes.map((pts, i) => (
-        <Fluxo
-          key={i}
-          pontos={pts}
-          cor={i % 3 === 0 ? COR.violeta : COR.ciano}
-          espessura={0.05}
-          velocidade={-(0.45 + i * 0.05)}
-          opacidade={0.75}
-          segmentos={rico ? 72 : 32}
-          parado={parado}
-        />
-      ))}
-
-      <Anel raio={12.4} espessura={0.03} cor={COR.ciano} opacidade={0.4} rotation={[1.4, 0.3, 0]} />
-      <Anel raio={15.2} espessura={0.022} cor={COR.violeta} opacidade={0.26} rotation={[0.6, 1.1, 0.5]} />
-
-      <Enxame quantidade={rico ? 460 : 200} parado={parado} longe={longe} />
-
-      <Grade position={[0, -13, 0]} tamanho={44} divisoes={18} cor={COR.ciano} opacidade={0.14} />
+      {/* dois anéis finos marcam a escala do conjunto sem virar neon */}
+      {medio ? (
+        <>
+          <Anel raio={24} espessura={0.05} cor={COR.azul} opacidade={0.3} rotation={[Math.PI / 2, 0, 0]} />
+          <Anel raio={13} espessura={0.04} cor={COR.ciano} opacidade={0.26} rotation={[Math.PI / 2, 0, 0]} />
+        </>
+      ) : null}
     </group>
   );
 }

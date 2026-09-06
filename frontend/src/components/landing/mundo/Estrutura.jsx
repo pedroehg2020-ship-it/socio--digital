@@ -1,245 +1,186 @@
 /**
- * Estrutura — a arquitetura do ambiente.
+ * ESTRUTURA — o sítio onde a página inteira acontece.
  *
- * É a camada que responde pela profundidade real: pilares altos que passam
- * rente à câmera, arcos que cruzam a via, chão em grade lá embaixo e poeira
- * luminosa em três distâncias. Sem ela as regiões seriam objetos soltos no
- * vazio, que é exatamente o problema da versão anterior.
+ * A versão anterior construía um túnel: pilares de altura aleatória com
+ * faixas acesas, arcos de neon ciano cruzando o caminho e um chão em grade.
+ * Aquilo era ficção científica, e era também o que fazia a cena parecer um
+ * jogo. Saiu inteiro.
  *
- * Tudo aqui é instanciado — pilares, faixas e arcos saem em quatro chamadas
- * de desenho no total, independentemente da quantidade.
+ * No lugar entra o contexto que a narrativa pede: uma cidade ao longe, um
+ * terreno e a bruma de distância. A cidade não é cenário aleatório — ela é a
+ * razão de o escritório estar num último andar e de o edifício do cliente ter
+ * escala. E ela some progressivamente sob a névoa conforme a câmera avança
+ * para a região de dados, o que é o que permite a atmosfera mudar sem que a
+ * página fique escura.
+ *
+ * Tudo instanciado: a cidade sai em duas chamadas de desenho.
  */
 
 import { useLayoutEffect, useMemo, useRef } from "react";
 import { useFrame } from "@react-three/fiber";
 import * as THREE from "three";
-import { MARCOS } from "@/components/landing/mundo/rota";
 import { COR } from "@/components/landing/mundo/paleta";
-import { texturaBrilho, Grade } from "@/components/landing/mundo/comuns";
+import { texturaBrilho } from "@/components/landing/mundo/comuns";
 
-/** Ruído determinístico: a mesma estrutura em toda visita e em todo aparelho. */
+/** Ruído determinístico: a mesma cidade em toda visita e em todo aparelho. */
 function ruido(i, s = 1) {
   const v = Math.sin(i * 127.1 + s * 311.7) * 43758.5453;
   return v - Math.floor(v);
 }
 
-/** A via percorrida pela câmera, achatada — serve de eixo para a arquitetura. */
-function useVia() {
-  return useMemo(
+/* --------------------------------------------------------------- cidade */
+
+/**
+ * Malha urbana em duas faixas: uma próxima, com volumes altos e legíveis, e
+ * uma distante que a névoa quase apaga. Os prédios ficam FORA do corredor por
+ * onde a câmera passa — a cidade emoldura a viagem, não a obstrui.
+ */
+function Cidade({ quantidade = 130 }) {
+  const corpo = useRef();
+  const topo = useRef();
+
+  const materialCorpo = useMemo(
     () =>
-      new THREE.CatmullRomCurve3(
-        MARCOS.slice(0, MARCOS.length - 1).map(
-          (m) => new THREE.Vector3(m.cam[0], 0, m.cam[2])
-        ),
-        false,
-        "catmullrom",
-        0.4
-      ),
+      new THREE.MeshStandardMaterial({
+        color: COR.marinhoClaro,
+        roughness: 0.62,
+        metalness: 0.35,
+        envMapIntensity: 0.9,
+      }),
     []
   );
-}
 
-/* -------------------------------------------------------------- pilares */
-
-function Pilares({ quantidade = 46 }) {
-  const via = useVia();
-  const corpo = useRef();
-  const faixa = useRef();
+  /* As lajes de topo pegam a luz do céu e desenham o skyline sem emissivo. */
+  const materialTopo = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: COR.concreto,
+        roughness: 0.75,
+        metalness: 0.1,
+        envMapIntensity: 1.1,
+      }),
+    []
+  );
 
   const dados = useMemo(() => {
     const lista = [];
-    const p = new THREE.Vector3();
-    const tan = new THREE.Vector3();
-    const dir = new THREE.Vector3();
-    const CIMA = new THREE.Vector3(0, 1, 0);
-
     for (let i = 0; i < quantidade; i += 1) {
-      const u = (i + 0.5) / quantidade;
-      via.getPoint(u, p);
-      via.getTangent(u, tan);
-      dir.copy(tan).cross(CIMA).normalize();
-
-      for (let s = -1; s <= 1; s += 2) {
-        const afast = 22 + ruido(i, s) * 14;
-        const altura = 22 + ruido(i, s + 5) * 30;
-        const largura = 1.1 + ruido(i, s + 9) * 1.7;
-        const y = -14 + ruido(i, s + 3) * 5;
-        lista.push({
-          x: p.x + dir.x * afast * s,
-          y: y + altura / 2,
-          z: p.z + dir.z * afast * s,
-          largura,
-          altura,
-          giro: Math.atan2(dir.x, dir.z),
-        });
-      }
+      const perto = i < quantidade * 0.4;
+      // afastamento lateral: nunca menos de 58, que é a borda do corredor
+      const lado = ruido(i, 3) > 0.5 ? 1 : -1;
+      const x = lado * (58 + ruido(i, 5) * (perto ? 70 : 210));
+      const z = 60 - ruido(i, 7) * (perto ? 420 : 900);
+      const altura = (perto ? 34 : 22) + ruido(i, 11) * (perto ? 92 : 60);
+      const largura = 12 + ruido(i, 13) * 20;
+      const profundidade = 12 + ruido(i, 17) * 20;
+      lista.push({ x, z, altura, largura, profundidade, giro: (ruido(i, 19) - 0.5) * 0.5 });
     }
     return lista;
-  }, [via, quantidade]);
+  }, [quantidade]);
 
   useLayoutEffect(() => {
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const e = new THREE.Euler();
-    const pos = new THREE.Vector3();
-    const esc = new THREE.Vector3();
+    const p = new THREE.Vector3();
+    const s = new THREE.Vector3();
 
     dados.forEach((d, i) => {
       e.set(0, d.giro, 0);
       q.setFromEuler(e);
 
-      pos.set(d.x, d.y, d.z);
-      esc.set(d.largura, d.altura, d.largura * 0.8);
-      m.compose(pos, q, esc);
+      p.set(d.x, -70 + d.altura / 2, d.z);
+      s.set(d.largura, d.altura, d.profundidade);
+      m.compose(p, q, s);
       corpo.current.setMatrixAt(i, m);
 
-      // faixa acesa correndo pela face interna do pilar
-      pos.set(d.x, d.y, d.z);
-      esc.set(d.largura * 0.16, d.altura * 0.7, d.largura * 0.9);
-      m.compose(pos, q, esc);
-      faixa.current.setMatrixAt(i, m);
+      p.set(d.x, -70 + d.altura + 0.4, d.z);
+      s.set(d.largura * 1.06, 0.8, d.profundidade * 1.06);
+      m.compose(p, q, s);
+      topo.current.setMatrixAt(i, m);
     });
 
     corpo.current.instanceMatrix.needsUpdate = true;
-    faixa.current.instanceMatrix.needsUpdate = true;
+    topo.current.instanceMatrix.needsUpdate = true;
   }, [dados]);
 
   return (
     <>
-      <instancedMesh ref={corpo} args={[null, null, dados.length]} frustumCulled>
+      <instancedMesh
+        ref={corpo}
+        args={[null, null, dados.length]}
+        material={materialCorpo}
+        frustumCulled
+      >
         <boxGeometry args={[1, 1, 1]} />
-        <meshStandardMaterial
-          color={COR.casco}
-          roughness={0.55}
-          metalness={0.75}
-          envMapIntensity={0.6}
-        />
       </instancedMesh>
-
-      <instancedMesh ref={faixa} args={[null, null, dados.length]} frustumCulled>
+      <instancedMesh
+        ref={topo}
+        args={[null, null, dados.length]}
+        material={materialTopo}
+        frustumCulled
+      >
         <boxGeometry args={[1, 1, 1]} />
-        <meshBasicMaterial color={COR.azul} transparent opacity={0.22} />
       </instancedMesh>
     </>
   );
 }
 
-/* ---------------------------------------------------------------- arcos */
-
-/** Arcos que cruzam a via por cima: marcam distância percorrida. */
-function Arcos({ quantidade = 16 }) {
-  const via = useVia();
-  const malha = useRef();
-
-  const dados = useMemo(() => {
-    const lista = [];
-    const p = new THREE.Vector3();
-    const tan = new THREE.Vector3();
-    for (let i = 0; i < quantidade; i += 1) {
-      const u = (i + 0.5) / quantidade;
-      via.getPoint(u, p);
-      via.getTangent(u, tan);
-      lista.push({
-        x: p.x,
-        y: -6 + ruido(i, 21) * 3,
-        z: p.z,
-        // +90° para o arco cruzar a via, e não correr paralelo a ela
-        giro: Math.atan2(tan.x, tan.z) + Math.PI / 2,
-        escala: 26 + ruido(i, 33) * 9,
-      });
-    }
-    return lista;
-  }, [via, quantidade]);
-
-  useLayoutEffect(() => {
-    const m = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    const e = new THREE.Euler();
-    const pos = new THREE.Vector3();
-    const esc = new THREE.Vector3();
-    dados.forEach((d, i) => {
-      e.set(0, d.giro, 0);
-      q.setFromEuler(e);
-      pos.set(d.x, d.y, d.z);
-      esc.set(d.escala, d.escala, d.escala);
-      m.compose(pos, q, esc);
-      malha.current.setMatrixAt(i, m);
-    });
-    malha.current.instanceMatrix.needsUpdate = true;
-  }, [dados]);
-
-  return (
-    <instancedMesh ref={malha} args={[null, null, dados.length]} frustumCulled>
-      <torusGeometry args={[1, 0.012, 4, 40, Math.PI]} />
-      <meshBasicMaterial color={COR.ciano} transparent opacity={0.3} toneMapped={false} />
-    </instancedMesh>
-  );
-}
-
-/* ----------------------------------------------------------- chão/grade */
-
-function Chao() {
-  const via = useVia();
-  const placas = useMemo(() => {
-    const lista = [];
-    const p = new THREE.Vector3();
-    for (let i = 0; i < 9; i += 1) {
-      via.getPoint((i + 0.5) / 9, p);
-      lista.push([p.x, -15, p.z]);
-    }
-    return lista;
-  }, [via]);
-
-  return (
-    <>
-      {placas.map((p, i) => (
-        <Grade
-          key={i}
-          position={p}
-          tamanho={70}
-          divisoes={14}
-          cor={i % 3 === 0 ? COR.ciano : COR.azul}
-          opacidade={0.13}
-        />
-      ))}
-    </>
-  );
-}
-
-/* --------------------------------------------------------------- poeira */
+/* -------------------------------------------------------------- terreno */
 
 /**
- * Partículas em três profundidades ao longo da via. É o elemento mais barato
- * da cena e o que mais contribui para a sensação de espaço ocupado.
+ * O chão da cidade, lá embaixo. É um plano só, fosco e escuro, cuja função é
+ * fechar o campo de visão para baixo: sem ele a cidade flutua no vazio.
  */
-function Poeira({ quantidade = 900, parado = false }) {
-  const via = useVia();
+function Terreno() {
+  const material = useMemo(
+    () =>
+      new THREE.MeshStandardMaterial({
+        color: COR.marinho,
+        roughness: 0.95,
+        metalness: 0.05,
+        envMapIntensity: 0.4,
+      }),
+    []
+  );
+
+  return (
+    <mesh material={material} rotation={[-Math.PI / 2, 0, 0]} position={[0, -70.5, -320]}>
+      <planeGeometry args={[1600, 1900]} />
+    </mesh>
+  );
+}
+
+/* ---------------------------------------------------------------- bruma */
+
+/**
+ * Partículas de atmosfera. Caíram de 1000 para 260 e deixaram de ser
+ * aditivas: o que se quer é poeira suspensa na luz da tarde, não faísca.
+ */
+function Bruma({ quantidade = 260, parado = false }) {
   const ref = useRef();
 
   const geo = useMemo(() => {
     const pos = new Float32Array(quantidade * 3);
-    const p = new THREE.Vector3();
     for (let i = 0; i < quantidade; i += 1) {
-      via.getPoint(ruido(i, 7), p);
-      pos[i * 3] = p.x + (ruido(i, 11) - 0.5) * 70;
-      pos[i * 3 + 1] = -18 + ruido(i, 13) * 46;
-      pos[i * 3 + 2] = p.z + (ruido(i, 17) - 0.5) * 70;
+      pos[i * 3] = (ruido(i, 11) - 0.5) * 190;
+      pos[i * 3 + 1] = -30 + ruido(i, 13) * 90;
+      pos[i * 3 + 2] = 40 - ruido(i, 7) * 760;
     }
     const g = new THREE.BufferGeometry();
     g.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     return g;
-  }, [via, quantidade]);
+  }, [quantidade]);
 
   const mat = useMemo(
     () =>
       new THREE.PointsMaterial({
-        size: 0.5,
+        size: 0.85,
         map: texturaBrilho(),
-        color: new THREE.Color(COR.cianoClaro),
+        color: new THREE.Color(COR.branco),
         transparent: true,
-        opacity: 0.5,
+        opacity: 0.2,
         depthWrite: false,
-        blending: THREE.AdditiveBlending,
         sizeAttenuation: true,
         fog: true,
       }),
@@ -248,7 +189,7 @@ function Poeira({ quantidade = 900, parado = false }) {
 
   useFrame((_, delta) => {
     if (parado || !ref.current) return;
-    ref.current.rotation.y += Math.min(delta, 0.05) * 0.006;
+    ref.current.rotation.y += Math.min(delta, 0.05) * 0.004;
   });
 
   return <points ref={ref} geometry={geo} material={mat} />;
@@ -262,10 +203,9 @@ export default function Estrutura({ qualidade = "alta", parado = false }) {
 
   return (
     <group>
-      <Pilares quantidade={rico ? 46 : medio ? 32 : 20} />
-      {medio ? <Arcos quantidade={rico ? 16 : 10} /> : null}
-      <Chao />
-      <Poeira quantidade={rico ? 1000 : medio ? 520 : 240} parado={parado} />
+      <Terreno />
+      <Cidade quantidade={rico ? 140 : medio ? 90 : 50} />
+      {medio ? <Bruma quantidade={rico ? 280 : 150} parado={parado} /> : null}
     </group>
   );
 }
