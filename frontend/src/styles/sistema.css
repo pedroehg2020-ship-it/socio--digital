@@ -36,9 +36,33 @@
      financeiro, cor de acento é sinal, não decoração. */
   --teal-700: #0a625f;
   --teal-600: #0d7a76;
-  --teal-500: #16a49a;
+  --teal-500: #2bb8ac;
+  --teal-400: #58cfc2;
   --teal-100: #d7ecea;
   --teal-050: #eef7f6;
+
+  /* ------------------------------------------------ superfícies escuras */
+  /**
+   * A página é predominantemente ESCURA. Estas são as superfícies em que a
+   * maior parte do conteúdo assenta — e são cinco, não uma, porque é a
+   * diferença de luminância entre elas que cria camada sem precisar de
+   * sombra ou de cartão.
+   */
+  --escuro-abismo: #070d1a;   /* rodapé e IA — o fundo mais profundo */
+  --escuro-base: #0c1526;     /* marinho padrão das seções */
+  --escuro-alto: #121e35;     /* superfície elevada dentro do escuro */
+  --escuro-topo: #18263f;     /* segunda elevação, cabeçalhos de tabela */
+  --escuro-azul: #101f38;     /* variação azulada, para alternar sem repetir */
+  --escuro-teal: #08251f;     /* variação teal profunda */
+
+  /* Filetes sobre escuro. Nunca usar preto: some. */
+  --borda-escura: #1e2d47;
+  --borda-escura-forte: #2b3d5c;
+
+  /* Tinta sobre escuro. */
+  --tinta-clara: #eef3f9;
+  --tinta-clara-2: #a9b6c9;
+  --tinta-clara-3: #6f7f97;
 
   /* --------------------------------------------------------- neutros */
   /* O fundo não é branco puro: branco puro sem estrutura achata a página e
@@ -129,7 +153,7 @@
 }
 
 .sd {
-  background: var(--fundo);
+  background: var(--escuro-base);
   color: var(--tinta-700);
   font-family: var(--fonte);
   font-size: var(--t-md);
@@ -155,6 +179,76 @@
   display: grid;
   grid-template-columns: repeat(12, minmax(0, 1fr));
   gap: var(--calha);
+}
+
+/* ============================================== seções ===== */
+
+/**
+ * Faixas de seção. A página alterna estas classes, e a regra é que nunca haja
+ * duas claras seguidas. A cor é da FAIXA INTEIRA, de borda a borda da janela —
+ * é o que dá ritmo a uma página longa e o que impede a leitura de "fundo
+ * branco com caixinhas".
+ */
+.sd-faixa {
+  position: relative;
+  border-top: 1px solid var(--borda-escura);
+}
+.sd-faixa-base { background: var(--escuro-base); }
+.sd-faixa-azul { background: var(--escuro-azul); }
+.sd-faixa-teal { background: var(--escuro-teal); }
+.sd-faixa-abismo { background: var(--escuro-abismo); }
+.sd-faixa-clara {
+  background: var(--fundo);
+  border-top-color: var(--borda);
+}
+
+/* Tipografia dentro das faixas escuras. */
+.sd-faixa-base,
+.sd-faixa-azul,
+.sd-faixa-teal,
+.sd-faixa-abismo {
+  color: var(--tinta-clara-2);
+}
+.sd-faixa-base .sd-h1,
+.sd-faixa-base .sd-h2,
+.sd-faixa-azul .sd-h2,
+.sd-faixa-teal .sd-h2,
+.sd-faixa-abismo .sd-h2,
+.sd-faixa-abismo .sd-h1 {
+  color: var(--tinta-clara);
+}
+.sd-faixa-base .sd-lead,
+.sd-faixa-azul .sd-lead,
+.sd-faixa-teal .sd-lead,
+.sd-faixa-abismo .sd-lead {
+  color: var(--tinta-clara-2);
+}
+.sd-faixa-base .sd-olho,
+.sd-faixa-azul .sd-olho,
+.sd-faixa-teal .sd-olho,
+.sd-faixa-abismo .sd-olho {
+  color: var(--teal-500);
+}
+.sd-faixa-base .sd-nota,
+.sd-faixa-azul .sd-nota,
+.sd-faixa-teal .sd-nota,
+.sd-faixa-abismo .sd-nota {
+  color: var(--tinta-clara-3);
+}
+
+/* Botão secundário sobre escuro. */
+.sd-faixa-base .sd-btn-secundario,
+.sd-faixa-abismo .sd-btn-secundario,
+.sd-faixa-azul .sd-btn-secundario {
+  background: transparent;
+  border-color: var(--borda-escura-forte);
+  color: var(--tinta-clara);
+}
+.sd-faixa-base .sd-btn-secundario:hover,
+.sd-faixa-abismo .sd-btn-secundario:hover,
+.sd-faixa-azul .sd-btn-secundario:hover {
+  border-color: var(--teal-500);
+  background: rgba(22, 164, 154, 0.08);
 }
 
 /* ================================================ tipografia ===== */
