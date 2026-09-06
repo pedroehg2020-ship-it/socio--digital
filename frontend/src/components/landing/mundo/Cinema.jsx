@@ -23,6 +23,7 @@ import { EffectComposer } from "three/examples/jsm/postprocessing/EffectComposer
 import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
+import { BokehPass } from "three/examples/jsm/postprocessing/BokehPass.js";
 import { MARCOS, pontoDeFoco, raioDoFoco } from "@/components/landing/mundo/rota";
 import { alvoDaRota, observar } from "@/components/landing/mundo/rolagem";
 import { NEVOA } from "@/components/landing/mundo/paleta";
@@ -206,6 +207,7 @@ export function Camera({ semMovimento, largura }) {
     /* Publicados para o rig de luz: progresso normalizado e lado do assunto. */
     camera.userData.progresso = u;
     camera.userData.lado = estreito ? 0 : lado;
+    camera.userData.distanciaFoco = distancia;
   });
 
   useEffect(() => {
@@ -221,7 +223,7 @@ export function Camera({ semMovimento, largura }) {
 /**
  * Bloom seletivo pelo limiar de luminância: só o que já é emissivo vira luz.
  * Fica desligado nos aparelhos de menor capacidade, onde os brilhos aditivos
- * de `comuns.jsx` sustentam sozinhos a leitura de glow.
+ * o realce do vidro e do metal sustenta sozinho a leitura da luz.
  */
 /**
  * Bloom. O limiar subiu de 0.72 para 0.94 e a intensidade padrão caiu para
@@ -230,7 +232,7 @@ export function Camera({ semMovimento, largura }) {
  * fonte de luz — sancas do teto, telas, traços de interface — que é o papel
  * que o efeito deveria ter desde o começo.
  */
-export function Pos({ intensidade = 0.18, escala = 1 }) {
+export function Pos({ intensidade = 0.12, escala = 1, desfoque = false }) {
   const { gl, scene, camera, size } = useThree();
 
   const composer = useMemo(() => {
@@ -247,9 +249,23 @@ export function Pos({ intensidade = 0.18, escala = 1 }) {
       0.94
     );
     c.addPass(bloom);
+
+    /**
+     * Profundidade de campo. É o que separa "render em tempo real" de
+     * "fotografia": o plano em foco fica nítido e o resto some suavemente.
+     * O `focus` é atualizado a cada quadro com a distância real da câmera ao
+     * alvo, e a abertura é pequena de propósito — desfoque exagerado vira
+     * efeito, e aqui ele precisa passar despercebido.
+     */
+    let bokeh = null;
+    if (desfoque) {
+      bokeh = new BokehPass(scene, camera, { focus: 40, aperture: 0.00055, maxblur: 0.006 });
+      c.addPass(bokeh);
+    }
     c.addPass(new OutputPass());
+    c.userData = { bokeh };
     return c;
-  }, [gl, scene, camera, intensidade]);
+  }, [gl, scene, camera, intensidade, desfoque]);
 
   useEffect(() => {
     const dpr = gl.getPixelRatio();
@@ -261,6 +277,12 @@ export function Pos({ intensidade = 0.18, escala = 1 }) {
 
   useFrame(() => {
     gl.toneMappingExposure = camera.userData.exposicao || 1;
+    const b = composer.userData?.bokeh;
+    if (b) {
+      const alvo = camera.userData.distanciaFoco || 40;
+      const u = b.materialBokeh.uniforms;
+      u.focus.value += (alvo - u.focus.value) * 0.08; // acompanha sem saltar
+    }
     composer.render();
   }, 1);
 

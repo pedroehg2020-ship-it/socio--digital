@@ -1,118 +1,96 @@
 /**
- * Mapa do mundo — fonte única de verdade da experiência.
+ * Rota — uma tomada só, do interior do escritório à visão ampla.
  *
- * NARRATIVA. A página conta uma transformação em quatro tempos:
+ * Não existem cenas nem cortes: existe UMA câmera percorrendo uma curva
+ * contínua. Os marcos abaixo são apenas os pontos por onde ela passa quando
+ * cada seção da página está no centro da janela.
  *
- *     espaço físico  →  empresa  →  dados  →  inteligência
+ * ── Q7 e a exigência de não parecer a mesma tela por seis seções ──
  *
- * A câmera começa DENTRO de uma sala executiva de último andar, ao fim da
- * tarde. Ela avança em direção à parede de vidro, atravessa e revela o
- * edifício da empresa. Dali segue voando para fora da cidade, e o que era
- * arquitetura vai virando estrutura de dados: as regiões de vendas,
- * financeiro, clientes, estoque, relatórios, agenda, automação e documentos
- * se alternam à esquerda e à direita do percurso, como pavilhões ao longo de
- * uma avenida. No fim tudo converge para um núcleo único, e a câmera sobe
- * para revelar que escritório, edifício e sistemas sempre estiveram no mesmo
- * terreno — que é a frase "toda a sua empresa em um só lugar", dita em
- * imagem.
+ * O painel curvo é um objeto só, e continua sendo. O que impede a monotonia é
+ * a COREOGRAFIA em torno dele, que aqui é explícita, marco a marco:
  *
- * Por isso a alternância esquerda/direita não é só ritmo visual: ela existe
- * para que cada estrutura seja vista DE PASSAGEM, com a anterior ainda
- * recuando no quadro. Uma coisa puxa a outra.
+ *   painel         aproximação frontal, ainda longe, o conjunto se formando
+ *   como-funciona  deslocamento lateral — a câmera desliza para a direita e
+ *                  o painel abre em perspectiva, deixando de ser frontal
+ *   beneficios     a câmera passa POR TRÁS do painel e olha através dele:
+ *                  os dados aparecem espelhados, vistos pelo verso do vidro
+ *   para-quem      mudança de foco — volta à frente, bem perto, e o painel
+ *                  passa a preencher o quadro
+ *   seguranca      detalhe: a câmera vai à borda do painel, quase rasante,
+ *                  e o que se vê é a espessura do vidro e um traço de dado
+ *   faq            recuo, subindo — o painel inteiro volta ao quadro
  *
- * ESTES NÚMEROS NÃO FORAM ESCRITOS À MÃO. Foram gerados a partir do traçado e
- * verificados por cálculo: para cada marco confere-se, no pior aspecto do
- * modo desktop (4:3), que a região focada cabe na metade livre da tela sem
- * cruzar a borda da coluna de texto, e que a câmera não está dentro de nenhum
- * volume. Ao mexer em qualquer valor daqui, refaça essa conta.
+ * Seis enquadramentos francamente diferentes, zero objetos novos.
  *
- * `lado` diz de que lado da tela o assunto aparece:
- *      +1 → texto à esquerda, cena à direita
- *      -1 → texto à direita,  cena à esquerda
- *       0 → texto centralizado, cena ao fundo
- *
- * O deslocamento lateral NÃO é feito movendo a estrutura: é a câmera que mira
- * fora do eixo, e o quanto ela desvia é calculado em tempo real a partir do
- * raio do assunto e da largura real do frustum. Por isso a zona segura do
- * texto continua livre em qualquer tamanho de janela.
- *
- * `clima` escolhe a cor da névoa (ver NEVOA na paleta) e, junto com a tabela
- * de climas da Iluminação, é o que faz a página começar de dia e só depois
- * aprofundar — sem nunca ficar escura a ponto de comprometer a leitura.
+ * `lado` diz de que lado da tela o assunto aparece (+1 cena à direita, -1 à
+ * esquerda, 0 ao fundo). O desvio é calculado em tempo real a partir do raio
+ * do assunto e da largura real do frustum, então a zona de texto continua
+ * livre em qualquer janela.
  */
-
-/* ------------------------------------------------------------- regiões */
-
-export const REGIOES = {
-  /* espaço físico */
-  escritorio: { pos: [0, 0, 4], raio: 17 },
-  /* empresa */
-  edificio: { pos: [30, -8, -168], raio: 44, raioLargura: 26 },
-  /* dados */
-  financeiro: { pos: [-22, 4, -252], raio: 12 },
-  vendas: { pos: [22, 2, -314], raio: 13 },
-  clientes: { pos: [-22, 6, -376], raio: 12 },
-  estoque: { pos: [22, 0, -438], raio: 13 },
-  console: { pos: [-23, 6, -500], raio: 13 },
-  agenda: { pos: [21, 2, -560], raio: 10 },
-  radar: { pos: [-22, 8, -620], raio: 12 },
-  documentos: { pos: [21, 4, -678], raio: 10 },
-  painel: { pos: [-22, 6, -736], raio: 12 },
-  /* inteligência */
-  ia: { pos: [0, 10, -858], raio: 18 },
-};
-
-/* -------------------------------------------------------------- marcos */
 
 /**
- * `id` é o id real da <section> na página, e a ordem aqui precisa ser a ordem
- * em que as seções aparecem no documento — é ela que vira o trilho da câmera.
- *
- * `raio` só aparece quando o assunto do marco não é a região inteira. No
- * hero, por exemplo, o assunto é a composição da mesa, não a sala toda: a
- * câmera está dentro dela.
+ * Onde o painel curvo mora. Fica aqui, e não no componente, porque a rota é a
+ * fonte de verdade das posições — e assim este arquivo não depende de nada,
+ * o que permite verificá-lo por script sem montar a cena.
  */
+export const PAINEL = { pos: [0, 6, -380], raio: 18, largura: 36, altura: 22 };
+
+export const REGIOES = {
+  painel: { pos: PAINEL.pos, raio: PAINEL.raio },
+};
+
 export const MARCOS = [
-  { id: "hero", cam: [-5, 1.5, 22], foco: [5, -1.5, -1], raio: 3.5, lado: 1, fov: 40, clima: "dia", nevoa: [30, 620], expo: 1.0 },
-  { id: "funcionalidades", cam: [-6, 4, -34], foco: "edificio", lado: 1, fov: 46, clima: "dia", nevoa: [70, 900], expo: 1.0 },
-  { id: "financeiro", cam: [3, 4, -196], foco: "financeiro", lado: -1, fov: 44, clima: "dia", nevoa: [70, 900], expo: 1.02 },
-  { id: "vendas", cam: [-3, 3, -256], foco: "vendas", lado: 1, fov: 44, clima: "tarde", nevoa: [60, 760], expo: 1.02 },
-  { id: "clientes", cam: [3, 6, -320], foco: "clientes", lado: -1, fov: 44, clima: "tarde", nevoa: [60, 760], expo: 1.03 },
-  { id: "estoque", cam: [-3, 2, -380], foco: "estoque", lado: 1, fov: 44, clima: "tarde", nevoa: [60, 760], expo: 1.02 },
-  { id: "relatorios", cam: [3, 6, -442], foco: "console", lado: -1, fov: 44, clima: "tarde", nevoa: [60, 760], expo: 1.03 },
-  { id: "agenda", cam: [-3, 3, -508], foco: "agenda", lado: 1, fov: 44, clima: "fundo", nevoa: [50, 560], expo: 1.04 },
-  { id: "automacao", cam: [3, 8, -564], foco: "radar", lado: -1, fov: 44, clima: "fundo", nevoa: [50, 560], expo: 1.05 },
-  { id: "documentos", cam: [-3, 5, -626], foco: "documentos", lado: 1, fov: 44, clima: "fundo", nevoa: [50, 560], expo: 1.04 },
-  { id: "painel", cam: [3, 6, -680], foco: "painel", lado: -1, fov: 44, clima: "fundo", nevoa: [50, 560], expo: 1.05 },
-  { id: "como-funciona", cam: [0, 14, -688], foco: "ia", lado: 0, fov: 48, clima: "fundo", nevoa: [50, 560], expo: 1.02 },
-  { id: "beneficios", cam: [0, 13, -720], foco: "ia", lado: 0, fov: 47, clima: "noite", nevoa: [46, 470], expo: 1.04 },
-  { id: "para-quem", cam: [0, 12, -748], foco: "ia", lado: 0, fov: 46, clima: "noite", nevoa: [46, 470], expo: 1.05 },
-  { id: "seguranca", cam: [4, 11, -772], foco: "ia", lado: 1, fov: 44, clima: "noite", nevoa: [46, 470], expo: 1.06 },
-  { id: "faq", cam: [0, 26, -794], foco: "ia", lado: 0, fov: 52, clima: "noite", nevoa: [46, 470], expo: 1.03 },
-  /* revelação: a câmera sobe e volta, e o terreno inteiro entra no quadro */
-  { id: "cta", cam: [0, 215, 150], foco: [0, -18, -380], lado: 0, fov: 62, clima: "tarde", nevoa: [140, 1500], expo: 1.1 },
+  /* ---------------------------------------------- Q1 · dentro da sala */
+  { id: "hero", cam: [-3.5, 1.2, 15], foco: [5.6, -3.0, 0.5], raio: 3.6, lado: 1, fov: 38, clima: "interior", nevoa: [24, 190], expo: 0.94 },
+
+  /* ------------------------------------------------- Q2 · aproximação */
+  { id: "funcionalidades", cam: [-1, 2.2, 5], foco: [0, 2.4, -60], raio: 11, lado: 0, fov: 44, clima: "interior", nevoa: [40, 520], expo: 0.94 },
+
+  /* --------------------------------------------- Q3 · o vidro acorda */
+  { id: "financeiro", cam: [3.5, 3.0, 2.0], foco: [-4.2, 3.4, -12.9], raio: 3.4, lado: -1, fov: 42, clima: "interior", nevoa: [26, 460], expo: 0.94 },
+  { id: "vendas", cam: [-3.5, 2.2, 0.0], foco: [4.8, 1.0, -12.9], raio: 3.4, lado: 1, fov: 42, clima: "manha", nevoa: [26, 460], expo: 0.94 },
+
+  /* ------------------------------------------------- Q4 · atravessar */
+  { id: "clientes", cam: [0, 5, -34], foco: [-46, 10, -120], raio: 22, lado: -1, fov: 46, clima: "manha", nevoa: [120, 1500], expo: 0.94 },
+  { id: "estoque", cam: [0, 9, -74], foco: [48, 16, -172], raio: 22, lado: 1, fov: 46, clima: "cidade", nevoa: [140, 1700], expo: 0.94 },
+
+  /* --------------------------------- Q5 · a cidade recebe os dados */
+  { id: "relatorios", cam: [4, 10, -116], foco: [-52, 8, -196], raio: 22, lado: -1, fov: 45, clima: "cidade", nevoa: [140, 1700], expo: 0.94 },
+  { id: "agenda", cam: [-4, 13, -160], foco: [56, 18, -246], raio: 22, lado: 1, fov: 45, clima: "cidade", nevoa: [140, 1700], expo: 0.94 },
+
+  /* ------------------------------------------ Q6 · planos de vidro */
+  { id: "automacao", cam: [6, 12, -206], foco: [-26, 10, -282], raio: 18, lado: -1, fov: 46, clima: "cidade", nevoa: [110, 1500], expo: 0.94 },
+  { id: "documentos", cam: [-6, 10, -250], foco: [24, 6, -318], raio: 18, lado: 1, fov: 46, clima: "cidade", nevoa: [100, 1400], expo: 0.94 },
+
+  /* ------------------------------------------- Q7 · a coreografia */
+  /* aproximação frontal */
+  { id: "painel", cam: [-4, 8, -290], foco: "painel", lado: -1, fov: 44, clima: "cidade", nevoa: [90, 1300], expo: 0.94 },
+  /* deslocamento lateral: a câmera desliza e o painel abre em perspectiva */
+  { id: "como-funciona", cam: [52, 7, -312], foco: "painel", lado: 1, fov: 42, clima: "cidade", nevoa: [90, 1300], expo: 0.94 },
+  /* por trás do painel, olhando através do vidro */
+  { id: "beneficios", cam: [30, 9, -456], foco: "painel", lado: 1, fov: 44, clima: "amplo", nevoa: [90, 1300], expo: 0.94 },
+  /* de volta à frente, perto: o painel preenche o quadro */
+  { id: "para-quem", cam: [0, 6.5, -318], foco: "painel", lado: 0, fov: 48, clima: "amplo", nevoa: [70, 1100], expo: 0.94 },
+  /* detalhe rasante na borda do painel */
+  { id: "seguranca", cam: [-30, 6, -352], foco: [-15, 6, -378], raio: 5, lado: -1, fov: 40, clima: "amplo", nevoa: [50, 900], expo: 0.94 },
+  /* recuo subindo: o conjunto volta ao quadro */
+  { id: "faq", cam: [0, 34, -280], foco: "painel", lado: 0, fov: 50, clima: "amplo", nevoa: [100, 1400], expo: 0.94 },
+
+  /* ------------------------------------------- Q8 · visão ampla */
+  { id: "cta", cam: [0, 150, 60], foco: [0, -6, -320], raio: 60, lado: 0, fov: 58, clima: "amplo", nevoa: [320, 3000], expo: 0.94 },
 ];
 
-/** Resolve o foco de um marco (chave de região ou coordenada literal). */
 export function pontoDeFoco(marco) {
   if (Array.isArray(marco.foco)) return marco.foco;
   const r = REGIOES[marco.foco];
   return r ? r.pos : [0, 0, 0];
 }
 
-/**
- * Raio do assunto do marco — entra na conta do desvio lateral da câmera.
- *
- * Usa `raioLargura` quando existe: para um volume alto e estreito como a
- * torre, o raio da esfera envolvente é dominado pela altura e produziria um
- * desvio muito maior do que o necessário.
- */
 export function raioDoFoco(marco) {
   if (marco.raio != null) return marco.raio;
   const r = REGIOES[marco.foco];
-  if (!r) return 0;
-  return r.raioLargura ?? r.raio;
+  return r ? r.raio : 0;
 }
 
-/** Ordem dos ids, usada pelo controlador de rolagem. */
 export const IDS = MARCOS.map((m) => m.id);

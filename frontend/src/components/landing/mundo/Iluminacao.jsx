@@ -1,24 +1,20 @@
 /**
- * Iluminação do mundo — rig de fotografia de arquitetura.
+ * Iluminação — nove da manhã, do começo ao fim.
  *
- * Duas correções de fundo em relação à versão anterior:
+ * A página não escurece em nenhum momento. O que muda ao longo da rolagem é
+ * sutil: a luz sai de um interior com contraste (sol baixo entrando de lado)
+ * para um exterior mais difuso e aberto, e volta a ganhar direção na visão
+ * final. Nenhum estágio desce abaixo do ponto em que a cena continua clara.
  *
- * 1. A CENA COMEÇA DE DIA. Antes havia um único clima frio e escuro do começo
- *    ao fim. Agora o rig percorre uma tabela de climas ligada à rolagem: o
- *    escritório é luz natural quente de fim de tarde, a cidade é dia aberto,
- *    a região de dados fecha para crepúsculo e a revelação final volta a
- *    abrir. Nenhum clima desce abaixo do ponto em que texto claro sobre a
- *    cena ainda tem contraste.
+ * Duas regras de composição embutidas aqui:
  *
- * 2. A LUZ NUNCA FICA ATRÁS DO TEXTO. A luz-chave é posicionada do lado em
- *    que o assunto está, que é sempre o lado oposto ao da coluna de texto.
- *    Quando a página inverte o lado, a chave atravessa para o outro lado
- *    junto — devagar, para ler como o sol mudando de ângulo, e não como um
- *    interruptor. Do lado do texto sobra apenas o preenchimento suave, que
- *    não produz manchas nem estouros.
+ *  · A CHAVE FICA DO LADO DO ASSUNTO. O lado é publicado pelo Cinema e é
+ *    sempre o oposto ao da coluna de texto. Do lado do texto sobra o
+ *    preenchimento difuso, que não produz mancha nem estouro.
  *
- * Não há sombra projetada: o custo em WebGL não se paga num ambiente deste
- * tamanho, e o volume aqui vem do contraste entre chave e preenchimento.
+ *  · SEM BRANCO PURO. A chave nunca passa de intensidade 2,6 e a exposição
+ *    fica em torno de 1,05. Céu claro com resto de cor lê como fotografia;
+ *    céu em 100% lê como falha de exposição.
  */
 
 import { useMemo, useRef } from "react";
@@ -26,30 +22,22 @@ import { useFrame, useThree } from "@react-three/fiber";
 import * as THREE from "three";
 import { COR } from "@/components/landing/mundo/paleta";
 
-/**
- * Climas ao longo da rolagem. `u` é a posição normalizada na rota (0 a 1).
- *
- * `ambiente` e `hemisferio` são o piso de luz — o que garante que nada fique
- * ilegível. `chave` é o sol. `quente` mistura a cor da chave entre a luz do
- * dia e o azul do fim de tarde.
- */
+/** `u` é o progresso normalizado da rota (0 a 1). */
 const CLIMAS = [
-  { u: 0.0, ambiente: 0.62, hemisferio: 0.85, chave: 2.5, quente: 1.0 },   // escritório
-  { u: 0.12, ambiente: 0.6, hemisferio: 0.9, chave: 2.7, quente: 0.9 },    // janela / cidade
-  { u: 0.3, ambiente: 0.52, hemisferio: 0.78, chave: 2.3, quente: 0.65 },  // dados
-  { u: 0.58, ambiente: 0.45, hemisferio: 0.66, chave: 2.0, quente: 0.42 }, // operação
-  { u: 0.8, ambiente: 0.42, hemisferio: 0.6, chave: 1.8, quente: 0.3 },    // núcleo
-  { u: 1.0, ambiente: 0.55, hemisferio: 0.8, chave: 2.4, quente: 0.6 },    // revelação
+  { u: 0.0, ambiente: 0.34, hemisferio: 0.52, chave: 2.9, quente: 1.0 },  // interior, sol de lado
+  { u: 0.2, ambiente: 0.38, hemisferio: 0.58, chave: 2.7, quente: 0.82 },  // atravessando o vidro
+  { u: 0.45, ambiente: 0.42, hemisferio: 0.64, chave: 2.5, quente: 0.6 }, // cidade, luz difusa
+  { u: 0.75, ambiente: 0.4, hemisferio: 0.6, chave: 2.6, quente: 0.55 },  // painel
+  { u: 1.0, ambiente: 0.38, hemisferio: 0.58, chave: 2.8, quente: 0.72 },  // visão ampla
 ];
 
-/** Interpola a tabela de climas em `u`. */
 function climaEm(u) {
   let i = 0;
   while (i < CLIMAS.length - 2 && u > CLIMAS[i + 1].u) i += 1;
   const a = CLIMAS[i];
   const b = CLIMAS[i + 1];
   const f = THREE.MathUtils.clamp((u - a.u) / Math.max(1e-4, b.u - a.u), 0, 1);
-  const s = f * f * (3 - 2 * f); // suaviza as bordas entre climas
+  const s = f * f * (3 - 2 * f);
   return {
     ambiente: a.ambiente + (b.ambiente - a.ambiente) * s,
     hemisferio: a.hemisferio + (b.hemisferio - a.hemisferio) * s,
@@ -58,19 +46,17 @@ function climaEm(u) {
   };
 }
 
-export default function Iluminacao({ rico = true }) {
+export default function Iluminacao() {
   const grupo = useRef();
   const chave = useRef();
   const ambiente = useRef();
   const hemisferio = useRef();
-  const apoio = useRef();
+  const preenche = useRef();
   const { camera } = useThree();
 
-  const corQuente = useMemo(() => new THREE.Color(COR.luzDia), []);
-  const corFria = useMemo(() => new THREE.Color(COR.azulClaro), []);
+  const corQuente = useMemo(() => new THREE.Color(COR.sol), []);
+  const corFria = useMemo(() => new THREE.Color(COR.ceuMeio), []);
   const corChave = useMemo(() => new THREE.Color(), []);
-
-  /** Lado da chave, amortecido: o sol gira, não pisca. */
   const ladoSuave = useRef(1);
 
   useFrame((_, delta) => {
@@ -78,58 +64,41 @@ export default function Iluminacao({ rico = true }) {
     if (!g) return;
     const d = Math.min(delta, 0.05);
 
-    // O rig acompanha a câmera na horizontal, com atraso — nunca gruda nela.
-    g.position.x += (camera.position.x - g.position.x) * Math.min(1, d * 1.4);
-    g.position.z += (camera.position.z - g.position.z) * Math.min(1, d * 1.4);
+    // o rig acompanha a câmera com atraso; nunca gruda nela
+    g.position.x += (camera.position.x - g.position.x) * Math.min(1, d * 1.3);
+    g.position.z += (camera.position.z - g.position.z) * Math.min(1, d * 1.3);
 
-    const clima = climaEm(camera.userData.progresso ?? 0);
+    const c = climaEm(camera.userData.progresso ?? 0);
+    if (ambiente.current) ambiente.current.intensity = c.ambiente;
+    if (hemisferio.current) hemisferio.current.intensity = c.hemisferio;
 
-    if (ambiente.current) ambiente.current.intensity = clima.ambiente;
-    if (hemisferio.current) hemisferio.current.intensity = clima.hemisferio;
-
-    /**
-     * O lado do assunto vem do Cinema. Em telas estreitas ele é 0, e aí a
-     * chave descansa numa posição neutra à frente.
-     */
-    const ladoAlvo = camera.userData.lado ?? 1;
-    ladoSuave.current += (ladoAlvo - ladoSuave.current) * Math.min(1, d * 0.9);
+    const alvo = camera.userData.lado ?? 1;
+    // travessia lenta: lê como o sol mudando de ângulo, não como interruptor
+    ladoSuave.current += (alvo - ladoSuave.current) * Math.min(1, d * 0.8);
 
     if (chave.current) {
-      chave.current.intensity = clima.chave;
-      // Azimute da chave: acompanha o assunto, mantendo a coluna de texto
-      // apenas com preenchimento.
-      chave.current.position.set(20 * ladoSuave.current, 26, 16);
-      corChave.copy(corFria).lerp(corQuente, clima.quente);
+      chave.current.intensity = c.chave;
+      chave.current.position.set(26 * ladoSuave.current, 20, 22);
+      corChave.copy(corFria).lerp(corQuente, c.quente);
       chave.current.color.copy(corChave);
     }
-
-    if (apoio.current) {
-      apoio.current.intensity = clima.chave * 0.3;
-      apoio.current.position.set(-16 * ladoSuave.current, 8, -18);
+    if (preenche.current) {
+      preenche.current.intensity = c.chave * 0.26;
+      preenche.current.position.set(-20 * ladoSuave.current, 12, -26);
     }
   });
 
   return (
     <group ref={grupo}>
-      {/* piso de luz — define o quanto a sombra continua legível */}
-      <ambientLight ref={ambiente} intensity={0.6} color={COR.ceuBaixo} />
-      <hemisphereLight
-        ref={hemisferio}
-        args={[COR.ceuMeio, COR.grafite, 0.85]}
-      />
+      {/* piso de luz alto: é ele que garante que nada fique fechado */}
+      <ambientLight ref={ambiente} intensity={0.36} color={COR.ceuBaixo} />
+      <hemisphereLight ref={hemisferio} args={[COR.ceuMeio, COR.concretoSombra, 0.55]} />
 
-      {/* sol: alto, do lado do assunto */}
-      <directionalLight ref={chave} position={[20, 26, 16]} intensity={2.5} color={COR.luzDia} />
+      {/* sol de manhã, baixo e do lado do assunto */}
+      <directionalLight ref={chave} position={[26, 20, 22]} intensity={2.6} color={COR.sol} />
 
-      {/* rebote frio vindo do fundo, o que recorta a silhueta sem estourar */}
-      <directionalLight ref={apoio} position={[-16, 8, -18]} intensity={0.7} color={COR.azulClaro} />
-
-      {rico ? (
-        /* Um único ponto de apoio baixo, para o volume não morrer na base.
-           O ponto violeta da versão anterior saiu: era o elemento que mais
-           puxava a cena para "neon". */
-        <pointLight position={[0, -10, -18]} intensity={45} distance={80} color={COR.azul} />
-      ) : null}
+      {/* rebote frio do céu, atrás: recorta a silhueta sem estourar */}
+      <directionalLight ref={preenche} position={[-20, 12, -26]} intensity={0.7} color={COR.ceuAlto} />
     </group>
   );
 }

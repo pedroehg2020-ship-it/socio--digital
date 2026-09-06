@@ -77,9 +77,10 @@
   z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(1200px 720px at 78% -6%, rgba(34, 211, 238, 0.12), transparent 62%),
-    radial-gradient(1000px 640px at 4% 12%, rgba(59, 130, 246, 0.12), transparent 64%),
-    linear-gradient(172deg, #040b1c 0%, #02060f 46%, #050e26 100%);
+    /* céu de manhã, na mesma família da névoa da cena 3D: sem WebGL o
+       visitante vê um ambiente coerente, não um fundo de outra paleta */
+    radial-gradient(1100px 700px at 26% 8%, rgba(255, 242, 224, 0.5), transparent 60%),
+    linear-gradient(178deg, #7fa4cd 0%, #a8c3de 38%, #cbd9e7 72%, #dde5ee 100%);
 }
 
 .lp-fundo-aurora,
@@ -91,16 +92,16 @@
 
 .lp-fundo-aurora {
   background:
-    radial-gradient(600px 460px at 20% 30%, rgba(34, 211, 238, 0.16), transparent 68%),
-    radial-gradient(560px 420px at 80% 68%, rgba(139, 92, 246, 0.13), transparent 66%);
-  opacity: 0.55;
+    radial-gradient(700px 520px at 22% 26%, rgba(255, 244, 226, 0.42), transparent 66%),
+    radial-gradient(620px 460px at 82% 70%, rgba(143, 176, 214, 0.28), transparent 68%);
+  opacity: 0.6;
   animation: lp-aurora 26s ease-in-out infinite alternate;
 }
 
 .lp-fundo-grade {
   background-image:
-    linear-gradient(rgba(148, 187, 255, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(148, 187, 255, 0.05) 1px, transparent 1px);
+    linear-gradient(rgba(22, 35, 61, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(22, 35, 61, 0.05) 1px, transparent 1px);
   background-size: 76px 76px;
   mask-image: radial-gradient(ellipse 84% 66% at 50% 40%, #000 12%, transparent 76%);
   -webkit-mask-image: radial-gradient(ellipse 84% 66% at 50% 40%, #000 12%, transparent 76%);
@@ -141,34 +142,87 @@
 /* ----------------------------------------------------------- zona segura */
 
 /**
- * Véu de leitura. Mora na camada de conteúdo, portanto acima do canvas, e é
- * o que garante contraste sem escurecer a cena inteira. O gradiente é bem
- * mais largo que o texto para que a borda nunca apareça como uma "caixa".
+ * APOIO DE LEITURA.
+ *
+ * A versão anterior usava um gradiente RADIAL escuro atrás de cada bloco de
+ * texto. Numa cena escura aquilo passava despercebido; com a cena clara de
+ * manhã ele virou um disco preto no meio do quadro — exatamente o "resolver
+ * com uma camada preta por cima" que a direção de arte proíbe. Saiu inteiro.
+ *
+ * No lugar entra um apoio LATERAL, ancorado à borda da janela e alinhado ao
+ * lado onde o texto está. Três diferenças que importam:
+ *
+ *   · é linear e sai da borda, então nunca tem centro visível nem contorno;
+ *   · cobre só a metade que a câmera já reservou para o texto, deixando a
+ *     metade da cena completamente limpa;
+ *   · é fraco (topo em 0,42) porque o trabalho pesado é da composição — a
+ *     mira fora do eixo já mantém os objetos do outro lado. Este apoio existe
+ *     apenas para o caso de a cena clarear atrás das letras.
+ *
+ * `--apoio` é a cor: o azul-marinho da marca, não preto puro. Preto sobre uma
+ * cena de manhã lê como sujeira; o marinho lê como sombra.
  */
+:root {
+  --apoio: 14, 24, 42;
+}
+
 .lp-veu { position: relative; }
+
+/* padrão: texto à esquerda — o apoio sai da borda esquerda */
 .lp-veu::before {
   content: "";
   position: absolute;
-  inset: -14% -22% -14% -34%;
+  inset: -10% -18% -10% -50vw;
   z-index: -1;
   pointer-events: none;
-  background: radial-gradient(
-    ellipse at 42% 50%,
-    rgba(2, 6, 15, 0.9) 0%,
-    rgba(2, 6, 15, 0.74) 42%,
-    rgba(2, 6, 15, 0) 74%
+  background: linear-gradient(
+    to right,
+    rgba(var(--apoio), 0.66) 0%,
+    rgba(var(--apoio), 0.58) 52%,
+    rgba(var(--apoio), 0.3) 82%,
+    rgba(var(--apoio), 0) 100%
   );
 }
-.lp-veu-forte::before {
-  background: radial-gradient(
-    ellipse at 46% 50%,
-    rgba(2, 6, 15, 0.95) 0%,
-    rgba(2, 6, 15, 0.84) 46%,
-    rgba(2, 6, 15, 0) 78%
+
+/* seções invertidas: texto à direita, o apoio espelha */
+.lp-feature-grade.invertida .lp-veu::before {
+  inset: -10% -50vw -10% -18%;
+  background: linear-gradient(
+    to left,
+    rgba(var(--apoio), 0.66) 0%,
+    rgba(var(--apoio), 0.58) 52%,
+    rgba(var(--apoio), 0.3) 82%,
+    rgba(var(--apoio), 0) 100%
   );
 }
+
+/**
+ * Blocos centralizados (hero centralizado, como-funciona, CTA). Aqui não há
+ * "lado", então o apoio é vertical e sobe do rodapé do bloco — a cena fica
+ * limpa em cima, que é onde o céu e as torres têm mais informação.
+ */
 .lp-cabecalho.centro .lp-veu::before,
-.lp-cta .lp-veu::before { inset: -22% -28%; }
+.lp-cta .lp-veu::before {
+  inset: -8% -30vw -12% -30vw;
+  background: linear-gradient(
+    to top,
+    rgba(var(--apoio), 0.62) 0%,
+    rgba(var(--apoio), 0.48) 58%,
+    rgba(var(--apoio), 0) 100%
+  );
+}
+
+/**
+ * Reforço mínimo no próprio texto. Uma sombra de 1 px custa nada e cobre o
+ * caso em que um realce do vidro passa exatamente atrás de uma linha — sem
+ * escurecer um pixel sequer da cena.
+ */
+.lp-veu h1,
+.lp-veu h2,
+.lp-veu p,
+.lp-veu li {
+  text-shadow: 0 1px 10px rgba(var(--apoio), 0.55);
+}
 
 /* -------------------------------------------------------------- estrutura */
 
@@ -548,7 +602,7 @@
   position: absolute;
   inset: auto -30% -60% -30%;
   height: 160px;
-  background: radial-gradient(ellipse at 50% 0%, rgba(34, 211, 238, 0.24), transparent 70%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(47, 92, 149, 0.18), transparent 70%);
   opacity: 0;
   transition: opacity 0.3s ease;
 }
@@ -860,7 +914,18 @@
   .lp-feature-grade .lp-janela,
   .lp-feature-grade.invertida .lp-janela { order: 1; }
 
-  .lp-veu::before { inset: -10% -14%; }
+  /* Em coluna única não existe "lado": o apoio vira vertical, como nos
+     blocos centralizados. */
+  .lp-veu::before,
+  .lp-feature-grade.invertida .lp-veu::before {
+    inset: -6% -20vw -10% -20vw;
+    background: linear-gradient(
+      to top,
+      rgba(var(--apoio), 0.66) 0%,
+      rgba(var(--apoio), 0.5) 60%,
+      rgba(var(--apoio), 0) 100%
+    );
+  }
 
   .lp-pilares, .lp-passos, .lp-beneficios-grade, .lp-publicos { grid-template-columns: repeat(2, 1fr); }
   .lp-rodape-grade { grid-template-columns: repeat(3, 1fr); }

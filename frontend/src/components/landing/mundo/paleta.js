@@ -1,85 +1,72 @@
 /**
- * Paleta do ambiente 3D — direção de arte arquitetônica.
+ * Paleta — manhã de nove horas, clara e sóbria.
  *
- * A versão anterior partia de um vazio quase preto (#02060f) e construía tudo
- * com ciano e violeta emissivos. O resultado lia como videogame. Aqui a lógica
- * é invertida e passa a ser a de fotografia de arquitetura:
+ * Duas regras que governam tudo:
  *
- *   1. A COR VEM DA LUZ, não do material. As superfícies são neutras — pedra,
- *      concreto, nogueira, metal escovado, vidro. Quem as tinge de azul é o
- *      céu; quem as aquece é a luz que entra pela janela.
- *   2. NENHUMA BASE ABAIXO DE ~12% DE LUMINÂNCIA. O ambiente mais fechado da
- *      página ainda é azul-marinho legível, nunca preto.
- *   3. CIANO É DETALHE. Ele aparece em traços finos de interface e em nada
- *      mais. Violeta e verde-neon saíram da paleta; o verde que restou é o
- *      verde sóbrio de indicador financeiro positivo.
+ *  1. CLARO, NUNCA ESTOURADO. O ponto mais luminoso da cena é o céu, e ele
+ *     fica em torno de 88% — não em branco puro. Superfície clara com um
+ *     resto de cor lê como fotografia; superfície em 100% lê como falha de
+ *     exposição. Nenhuma cor aqui é #ffffff.
  *
- * Regra prática ao criar material novo: escolha a cor nesta lista, deixe o
- * `emissive` em zero e resolva o brilho com iluminação. Emissivo só para o
- * que é literalmente uma tela ou uma luminária.
+ *  2. O AZUL-MARINHO É DA MARCA, NÃO DO AMBIENTE. Ele continua nos textos,
+ *     nos traços de interface e nos detalhes de dado — que é onde a
+ *     identidade do Sócio Digital deve aparecer. O ambiente construído é
+ *     neutro: vidro, alumínio, nogueira, concreto claro, mármore.
+ *
+ * Ao criar material novo: escolha a cor daqui, deixe `emissive` em zero e
+ * resolva o brilho com iluminação e reflexo. Emissivo só no que é literalmente
+ * luminária ou tela.
  */
 
 export const COR = {
-  /* --------------------------------------------------------- atmosfera */
-  /** Céu limpo de fim de tarde — topo, meio e horizonte. */
-  ceuAlto: "#41669c",
-  ceuMeio: "#7d9dc4",
-  ceuBaixo: "#cfdcea",
-  /** Luz natural: branco levemente quente, como sol filtrado por vidro. */
-  luzDia: "#fff2e0",
-  /** Bruma da cidade ao longe. */
-  bruma: "#93aac6",
+  /* ------------------------------------------------- céu e atmosfera */
+  ceuAlto: "#8fb2d8",
+  ceuMeio: "#c2d6e9",
+  ceuBaixo: "#e2e9ef",
+  /** Sol de manhã: quente, mas discreto. */
+  sol: "#ffeeda",
+  /** Bruma matinal — é ela que separa os planos de cidade. */
+  bruma: "#ccd8e4",
 
-  /* ----------------------------------------------- base arquitetônica */
-  /** Azul-marinho da identidade. É o tom mais escuro que a cena alcança. */
+  /* ---------------------------------------------------- identidade */
+  /** Azul-marinho do Sócio Digital. Texto, traço e detalhe. */
   marinho: "#16233d",
-  marinhoClaro: "#25355a",
-  /** Azul petróleo — paredes e volumes em sombra. */
-  petroleo: "#1d3a49",
-  /** Cinza arquitetônico, do grafite ao concreto claro. */
-  grafite: "#2f384a",
-  concreto: "#6d7788",
-  concretoClaro: "#a7b0bf",
-  /** Pedra dos pisos e bancadas. */
-  pedra: "#8b8c87",
-  pedraClara: "#b9bab4",
+  marinhoMedio: "#263career",
+  azulDado: "#2f5c95",
+  azulClaro: "#8fb0d6",
 
-  /* ---------------------------------------------------------- materiais */
-  nogueira: "#402c21",
-  nogueiraClara: "#6a4832",
-  metal: "#98a3b3",
-  metalEscuro: "#4b5462",
-  /** Vidro arquitetônico visto de fora: escuro e muito reflexivo. */
-  vidro: "#22354b",
-  vidroClaro: "#4d6a86",
+  /* ---------------------------------------------------- materiais */
+  concretoClaro: "#b3b7b8",
+  concretoSombra: "#8f9297",
+  marmore: "#dcdbd6",
+  marmoreVeio: "#b4b3ad",
+  nogueira: "#4a3226",
+  nogueiraClara: "#7a5539",
+  aluminio: "#b6bcc4",
+  aluminioEscuro: "#5a6068",
+  /** Caixilho: o perfil preto fino das referências. */
+  caixilho: "#22262b",
 
-  /* ------------------------------------------------------------ acentos */
-  /** Ciano dessaturado — só interface, sempre em traço fino. */
-  ciano: "#59b6c9",
-  cianoClaro: "#a9dbe5",
-  /** Azul de dado, o acento de maior área permitido. */
-  azul: "#4a7fb5",
-  azulClaro: "#9dbede",
-  /** Indicadores financeiros — sóbrios, não neon. */
-  positivo: "#5f9e7f",
-  negativo: "#b5705f",
-  ambar: "#d3a253",
+  /* -------------------------------------------------------- vidro */
+  vidro: "#cfdce8",
+  vidroTorre: "#6f8dae",
 
-  /* ---------------------------------------------------------- superfície */
-  branco: "#eef3f8",
-  texto: "#dbe6f2",
+  /* ------------------------------------------------------ acentos */
+  positivo: "#4f8f72",
+  negativo: "#a9685c",
+  branco: "#f2f4f6",
+  texto: "#e8eef5",
 };
 
-/**
- * Névoa por clima. A cena não usa mais uma cor única: ela viaja do dia
- * (escritório, cidade) para o crepúsculo (dados) e volta a abrir no final.
- * Os marcos da rota escolhem qual usar; o Cinema interpola entre elas.
- */
+/* corrige o descuido acima de forma explícita, para não ficar valor inválido */
+COR.marinhoMedio = "#26365a";
+
+/** Névoa: sempre manhã. O fim só abre o alcance, não escurece a cor. */
 export const NEVOA = {
-  dia: "#b9cbe0",
-  tarde: "#8fa6c2",
-  fundo: "#3a4d6b",
-  noite: "#22314c",
+  interior: "#cdd9e6",
+  manha: "#b9cadd",
+  cidade: "#9db4cd",
+  amplo: "#aac0d6",
 };
 
 export default COR;
