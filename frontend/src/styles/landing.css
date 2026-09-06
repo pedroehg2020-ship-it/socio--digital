@@ -1,153 +1,174 @@
 /* ==========================================================================
    Sócio Digital — página pública
 
-   Duas cores, muitos tons.
-     principal  → verde da marca
-     secundária → azul de apoio
-   O resto é a escala de tinta (quase preto azulado) até o branco.
+   MODELO DE CAMADAS (a parte que resolve o problema de "figura por cima do
+   texto"). Existem exatamente três planos, e a ordem é estrutural:
 
-   A versão anterior errou o alvo: "poucas cores" virou "página branca".
-   Aqui a base é escura, e o branco vira recurso de contraste — usado em duas
-   ou três seções para quebrar o ritmo, não como fundo padrão.
+     z-index 0  → .lp-fundo   (base de cor em CSS)
+     z-index 0  → .lp-palco   (canvas WebGL, pointer-events: none)
+     z-index 1+ → todo o conteúdo
+
+   Nenhum objeto 3D pode subir acima do conteúdo porque o canvas inteiro está
+   embaixo dele, e nenhum clique se perde porque o canvas não recebe evento.
+   A composição entre HTML e WebGL é feita pelo enquadramento da câmera: cada
+   seção deixa metade da tela livre (.lp-janela) e a câmera manda a cena
+   justamente para aquele lado.
+
+   COR: base azul-marinho quase preta, ciano como energia, azul para volume,
+   violeta e verde só como acento. Nenhuma seção clara — a página é um
+   ambiente noturno do começo ao fim, e é isso que dá unidade à viagem.
    ========================================================================== */
 
 .lp-root {
-  /* --------------------------------------------------------------- marca */
-  --marca-50: #ecfdf5;
-  --marca-200: #a7f3d0;
-  --marca-300: #6ee7b7;
-  --marca-400: #34d399;
-  --marca: #10b981;
-  --marca-600: #059669;
-  --marca-700: #047857;
-  --marca-900: #064e3b;
+  /* ------------------------------------------------------------- energia */
+  --ciano-100: #cffafe;
+  --ciano-200: #a5f3fc;
+  --ciano-300: #67e8f9;
+  --ciano: #22d3ee;
+  --ciano-600: #06b6d4;
+  --ciano-700: #0e7490;
 
-  --apoio-200: #bfdbfe;
-  --apoio-300: #93c5fd;
-  --apoio-400: #60a5fa;
-  --apoio: #3b82f6;
-  --apoio-600: #2563eb;
-  --apoio-800: #1e40af;
+  --azul-200: #bfdbfe;
+  --azul-300: #93c5fd;
+  --azul-400: #60a5fa;
+  --azul: #3b82f6;
+  --azul-600: #2563eb;
 
-  /* ---------------------------------------------------------- escala tinta */
-  --tinta-950: #04081a;
-  --tinta-900: #070e22;
-  --tinta-800: #0b142e;
-  --tinta-700: #101b3c;
-  --tinta-600: #16224a;
-  --tinta-500: #1f2f5e;
-  --tinta-400: #2c3f76;
+  --violeta: #8b5cf6;
+  --verde: #34d399;
+  --ambar: #fbbf24;
 
-  --papel: #ffffff;
-  --papel-2: #f3f7fd;
-  --papel-3: #e8eff9;
-  --linha: #dde5f2;
+  /* --------------------------------------------------------- escala base */
+  --vazio: #02060f;
+  --abismo: #040b1c;
+  --casco: #0a1430;
+  --casco-2: #101d42;
+  --linha: rgba(148, 187, 255, 0.14);
+  --linha-forte: rgba(148, 187, 255, 0.3);
 
-  --texto: #0b1430;
-  --texto-2: #4a5a78;
-  --texto-3: #7c8aa5;
-  --claro: #eaf1ff;
-  --claro-2: #b6c6e4;
-  --claro-3: #8397ba;
+  --claro: #e8f2ff;
+  --claro-2: #a9bfe0;
+  --claro-3: #7c93b8;
 
   --r: 16px;
-  --r-lg: 26px;
-  --r-xl: 34px;
+  --r-lg: 24px;
+  --r-xl: 32px;
 
-  --sombra-2: 0 12px 34px -16px rgba(4, 8, 26, 0.5);
-  --sombra-3: 0 34px 80px -34px rgba(4, 8, 26, 0.75);
-  --brilho-marca: 0 0 0 1px rgba(16, 185, 129, 0.22), 0 18px 50px -22px rgba(16, 185, 129, 0.6);
+  --sombra-2: 0 14px 40px -18px rgba(0, 0, 0, 0.8);
+  --sombra-3: 0 36px 90px -38px rgba(0, 0, 0, 0.95);
+  --brilho: 0 0 0 1px rgba(34, 211, 238, 0.28), 0 20px 56px -22px rgba(34, 211, 238, 0.7);
 
   position: relative;
-  background: var(--tinta-900);
+  background: var(--vazio);
   color: var(--claro);
   overflow-x: hidden;
 }
 
-/* ---------------------------------------------------------- palco 3D único */
+/* ---------------------------------------------------------- fundo em CSS */
+
+/**
+ * Base de cor que fica sempre presente, atrás do canvas. Quando não há WebGL
+ * ela assume a página sozinha: a aurora continua se movendo e a grade continua
+ * dando profundidade, então o visitante recebe um ambiente, não um vazio.
+ */
+.lp-fundo {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(1200px 720px at 78% -6%, rgba(34, 211, 238, 0.12), transparent 62%),
+    radial-gradient(1000px 640px at 4% 12%, rgba(59, 130, 246, 0.12), transparent 64%),
+    linear-gradient(172deg, #040b1c 0%, #02060f 46%, #050e26 100%);
+}
+
+.lp-fundo-aurora,
+.lp-fundo-grade {
+  position: absolute;
+  inset: 0;
+  display: block;
+}
+
+.lp-fundo-aurora {
+  background:
+    radial-gradient(600px 460px at 20% 30%, rgba(34, 211, 238, 0.16), transparent 68%),
+    radial-gradient(560px 420px at 80% 68%, rgba(139, 92, 246, 0.13), transparent 66%);
+  opacity: 0.55;
+  animation: lp-aurora 26s ease-in-out infinite alternate;
+}
+
+.lp-fundo-grade {
+  background-image:
+    linear-gradient(rgba(148, 187, 255, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(148, 187, 255, 0.05) 1px, transparent 1px);
+  background-size: 76px 76px;
+  mask-image: radial-gradient(ellipse 84% 66% at 50% 40%, #000 12%, transparent 76%);
+  -webkit-mask-image: radial-gradient(ellipse 84% 66% at 50% 40%, #000 12%, transparent 76%);
+}
+
+/* Sem WebGL a aurora fica mais viva — é ela que sustenta a página sozinha. */
+.lp-root.sem-3d .lp-fundo-aurora { opacity: 0.9; }
+
+@keyframes lp-aurora {
+  0% { transform: translate3d(-3%, -2%, 0) scale(1.05); }
+  100% { transform: translate3d(4%, 3%, 0) scale(1.16); }
+}
+
+/* --------------------------------------------------------------- palco 3D */
 
 .lp-palco {
   position: fixed;
   inset: 0;
-  z-index: 5;
+  z-index: 0;
   pointer-events: none;
 }
 .lp-palco canvas {
   display: block;
+  pointer-events: none !important;
+  touch-action: auto !important;
+}
+
+/* --------------------------------------------------------------- janelas */
+
+/**
+ * Espaço reservado para o mundo. Não pinta nada: só garante que a coluna
+ * exista no grid e que a cena tenha metade da tela para ocupar.
+ */
+.lp-janela { width: 100%; pointer-events: none; }
+.lp-janela-alta { min-height: 76vh; max-height: 780px; }
+.lp-janela-media { min-height: 62vh; max-height: 640px; }
+
+/* ----------------------------------------------------------- zona segura */
+
+/**
+ * Véu de leitura. Mora na camada de conteúdo, portanto acima do canvas, e é
+ * o que garante contraste sem escurecer a cena inteira. O gradiente é bem
+ * mais largo que o texto para que a borda nunca apareça como uma "caixa".
+ */
+.lp-veu { position: relative; }
+.lp-veu::before {
+  content: "";
+  position: absolute;
+  inset: -14% -22% -14% -34%;
+  z-index: -1;
   pointer-events: none;
+  background: radial-gradient(
+    ellipse at 42% 50%,
+    rgba(2, 6, 15, 0.9) 0%,
+    rgba(2, 6, 15, 0.74) 42%,
+    rgba(2, 6, 15, 0) 74%
+  );
 }
-
-/* ------------------------------------------------------------------ slots */
-
-/* Grandes de propósito. A cena transborda a coluna: é o que faz a composição
-   parecer um ambiente e não uma ilustração dentro de uma caixa. */
-.lp-slot {
-  position: relative;
-  display: block;
-  width: 100%;
-  border-radius: var(--r-xl);
+.lp-veu-forte::before {
+  background: radial-gradient(
+    ellipse at 46% 50%,
+    rgba(2, 6, 15, 0.95) 0%,
+    rgba(2, 6, 15, 0.84) 46%,
+    rgba(2, 6, 15, 0) 78%
+  );
 }
-.lp-slot-alta { min-height: 620px; }
-.lp-slot-media { min-height: 520px; }
-.lp-slot-baixa { min-height: 340px; }
-
-/* Névoa atrás da cena — sustenta a leitura de volume iluminado. */
-.lp-slot-halo {
-  position: absolute;
-  inset: -14%;
-  border-radius: 50%;
-  background:
-    radial-gradient(circle at 38% 40%, rgba(16, 185, 129, 0.2) 0%, transparent 58%),
-    radial-gradient(circle at 66% 62%, rgba(59, 130, 246, 0.18) 0%, transparent 60%);
-  filter: blur(28px);
-  pointer-events: none;
-}
-.fundo-claro .lp-slot-halo,
-.fundo-papel .lp-slot-halo {
-  background:
-    radial-gradient(circle at 38% 40%, rgba(16, 185, 129, 0.16) 0%, transparent 58%),
-    radial-gradient(circle at 66% 62%, rgba(59, 130, 246, 0.14) 0%, transparent 60%);
-}
-
-/* Fallback sem WebGL: três lâminas em perspectiva, não um ícone. */
-.lp-slot-css { display: none; }
-.lp-root.sem-3d .lp-slot-css {
-  position: absolute;
-  inset: 0;
-  display: grid;
-  place-items: center;
-  perspective: 1200px;
-}
-.lp-slot-css > span {
-  position: absolute;
-  border-radius: var(--r-lg);
-  transform-style: preserve-3d;
-}
-.lp-slot-css-tras {
-  width: 66%;
-  height: 46%;
-  background: linear-gradient(140deg, var(--tinta-500), var(--tinta-700));
-  transform: translate3d(-18%, -16%, -110px) rotateX(14deg) rotateY(-20deg);
-  box-shadow: var(--sombra-3);
-}
-.lp-slot-css-meio {
-  width: 70%;
-  height: 48%;
-  background: linear-gradient(140deg, var(--apoio-600), var(--apoio));
-  transform: translate3d(14%, 12%, -55px) rotateX(11deg) rotateY(-17deg);
-  opacity: 0.62;
-  box-shadow: var(--sombra-3);
-}
-.lp-slot-css-frente {
-  width: 52%;
-  height: 50%;
-  display: grid;
-  place-items: center;
-  color: #04231a;
-  background: linear-gradient(140deg, var(--marca-300), var(--marca-600));
-  box-shadow: var(--sombra-3);
-  transform: rotateX(9deg) rotateY(-14deg);
-}
+.lp-cabecalho.centro .lp-veu::before,
+.lp-cta .lp-veu::before { inset: -22% -28%; }
 
 /* -------------------------------------------------------------- estrutura */
 
@@ -162,91 +183,7 @@
 .lp-secao {
   position: relative;
   z-index: 1;
-  padding: 120px 0;
-  overflow: hidden;
-}
-
-/* --- variações de fundo: é a alternância que impede a monotonia --- */
-
-.fundo-tinta {
-  background: var(--tinta-900);
-}
-.fundo-tinta::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(760px 420px at 82% 8%, rgba(16, 185, 129, 0.14), transparent 62%),
-    radial-gradient(700px 400px at 10% 90%, rgba(59, 130, 246, 0.13), transparent 64%);
-  pointer-events: none;
-}
-
-.fundo-abismo {
-  background: linear-gradient(180deg, var(--tinta-900) 0%, var(--tinta-950) 52%, var(--tinta-900) 100%);
-}
-.fundo-abismo::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(900px 500px at 50% 50%, rgba(16, 185, 129, 0.16), transparent 66%),
-    radial-gradient(600px 400px at 15% 20%, rgba(59, 130, 246, 0.14), transparent 62%);
-  pointer-events: none;
-}
-
-.fundo-noite {
-  background: linear-gradient(160deg, var(--tinta-800) 0%, var(--tinta-700) 48%, var(--tinta-600) 100%);
-}
-.fundo-noite::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(720px 420px at 20% 15%, rgba(52, 211, 153, 0.13), transparent 62%);
-  pointer-events: none;
-}
-
-/* Seções claras: entram duas ou três vezes na página, para respirar. */
-.fundo-claro {
-  background: linear-gradient(180deg, var(--papel) 0%, var(--papel-2) 100%);
-  color: var(--texto);
-}
-.fundo-papel {
-  background: linear-gradient(180deg, var(--papel-2) 0%, var(--papel-3) 100%);
-  color: var(--texto);
-}
-.fundo-claro::before,
-.fundo-papel::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background:
-    radial-gradient(660px 380px at 88% 6%, rgba(16, 185, 129, 0.1), transparent 60%),
-    radial-gradient(600px 360px at 6% 94%, rgba(59, 130, 246, 0.09), transparent 62%);
-  pointer-events: none;
-}
-
-/* Costura entre uma seção escura e uma clara. */
-.lp-emenda {
-  position: relative;
-  z-index: 2;
-  height: 96px;
-  margin-top: -96px;
-  pointer-events: none;
-}
-.lp-emenda-baixo { background: linear-gradient(180deg, transparent, var(--papel)); }
-.lp-emenda-cima { background: linear-gradient(180deg, transparent, var(--tinta-900)); }
-
-/* Grade técnica sutil — textura de fundo sem virar ruído. */
-.lp-grade {
-  position: absolute;
-  inset: 0;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
-  background-size: 68px 68px;
-  mask-image: radial-gradient(ellipse 80% 62% at 50% 42%, #000 20%, transparent 78%);
-  -webkit-mask-image: radial-gradient(ellipse 80% 62% at 50% 42%, #000 20%, transparent 78%);
-  pointer-events: none;
+  padding: 132px 0;
 }
 
 /* ------------------------------------------------------------ tipografia */
@@ -265,20 +202,14 @@
   gap: 8px;
   padding: 6px 14px 6px 11px;
   border-radius: 999px;
-  background: rgba(16, 185, 129, 0.1);
-  border: 1px solid rgba(16, 185, 129, 0.28);
+  background: rgba(34, 211, 238, 0.1);
+  border: 1px solid rgba(34, 211, 238, 0.3);
   font-size: 11.5px;
   font-weight: 600;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: var(--marca-300);
+  color: var(--ciano-300);
   margin-bottom: 20px;
-}
-.fundo-claro .lp-sobretitulo,
-.fundo-papel .lp-sobretitulo {
-  color: var(--marca-700);
-  background: rgba(16, 185, 129, 0.09);
-  border-color: rgba(16, 185, 129, 0.26);
 }
 
 .lp-h2 {
@@ -294,14 +225,7 @@
   font-weight: 600;
   margin: 18px 0 0;
   max-width: 32ch;
-  background: linear-gradient(96deg, var(--marca-300), var(--apoio-300));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.fundo-claro .lp-frase,
-.fundo-papel .lp-frase {
-  background: linear-gradient(96deg, var(--marca-700), var(--apoio-600));
+  background: linear-gradient(96deg, var(--ciano-200), var(--azul-300));
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -312,20 +236,16 @@
   line-height: 1.72;
   color: var(--claro-2);
   margin: 18px 0 0;
-  max-width: 50ch;
+  max-width: 48ch;
 }
-.fundo-claro .lp-texto,
-.fundo-papel .lp-texto { color: var(--texto-2); }
 
 .lp-sub {
   font-size: 17px;
   line-height: 1.68;
   color: var(--claro-2);
   margin: 18px 0 0;
-  max-width: 60ch;
+  max-width: 58ch;
 }
-.fundo-claro .lp-sub,
-.fundo-papel .lp-sub { color: var(--texto-2); }
 
 .lp-cabecalho { margin-bottom: 58px; }
 .lp-cabecalho.centro {
@@ -334,6 +254,7 @@
   flex-direction: column;
   align-items: center;
 }
+.lp-cabecalho.centro .lp-veu { display: flex; flex-direction: column; align-items: center; }
 
 /* ----------------------------------------------------------------- botões */
 
@@ -360,37 +281,29 @@
 .lp-btn-bloco { width: 100%; }
 
 .lp-btn-principal {
-  background: linear-gradient(135deg, var(--marca-600) 0%, var(--marca) 52%, var(--marca-400) 100%);
-  color: #04231a;
-  box-shadow: var(--brilho-marca);
+  background: linear-gradient(135deg, var(--ciano-600) 0%, var(--ciano) 50%, var(--azul-400) 100%);
+  color: #041826;
+  box-shadow: var(--brilho);
 }
 .lp-btn-principal:hover {
   transform: translateY(-3px);
-  box-shadow: 0 0 0 1px rgba(16, 185, 129, 0.4), 0 26px 60px -22px rgba(16, 185, 129, 0.85);
+  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.45), 0 28px 64px -22px rgba(34, 211, 238, 0.9);
 }
 
 .lp-btn-vidro {
-  background: rgba(255, 255, 255, 0.07);
-  border-color: rgba(255, 255, 255, 0.2);
+  background: rgba(148, 187, 255, 0.08);
+  border-color: rgba(148, 187, 255, 0.24);
   color: #fff;
   backdrop-filter: blur(12px);
 }
 .lp-btn-vidro:hover {
-  background: rgba(255, 255, 255, 0.14);
-  border-color: rgba(255, 255, 255, 0.4);
+  background: rgba(148, 187, 255, 0.16);
+  border-color: rgba(148, 187, 255, 0.46);
   transform: translateY(-3px);
 }
-.fundo-claro .lp-btn-vidro,
-.fundo-papel .lp-btn-vidro {
-  background: rgba(11, 20, 48, 0.05);
-  border-color: rgba(11, 20, 48, 0.16);
-  color: var(--texto);
-}
-.fundo-claro .lp-btn-vidro:hover,
-.fundo-papel .lp-btn-vidro:hover { background: rgba(11, 20, 48, 0.09); }
 
 .lp-btn-texto { color: inherit; padding: 9px 13px; }
-.lp-btn-texto:hover { color: var(--marca-300); }
+.lp-btn-texto:hover { color: var(--ciano-300); }
 
 .lp-botoes { display: flex; flex-wrap: wrap; gap: 13px; margin-top: 34px; }
 
@@ -401,13 +314,11 @@
   margin-top: 30px;
   font-size: 15px;
   font-weight: 600;
-  color: var(--marca-300);
+  color: var(--ciano-300);
   border-bottom: 1px solid transparent;
   transition: border-color 0.2s ease, gap 0.2s ease;
 }
-.lp-link-cta:hover { border-color: var(--marca); gap: 13px; }
-.fundo-claro .lp-link-cta,
-.fundo-papel .lp-link-cta { color: var(--marca-700); }
+.lp-link-cta:hover { border-color: var(--ciano); gap: 13px; }
 
 /* -------------------------------------------------------------- cabeçalho */
 
@@ -420,9 +331,9 @@
   transition: background 0.3s ease, border-color 0.3s ease, backdrop-filter 0.3s ease;
 }
 .lp-topo.rolado {
-  background: rgba(4, 8, 26, 0.8);
-  backdrop-filter: blur(18px) saturate(150%);
-  border-bottom-color: rgba(255, 255, 255, 0.08);
+  background: rgba(2, 6, 15, 0.72);
+  backdrop-filter: blur(20px) saturate(150%);
+  border-bottom-color: var(--linha);
 }
 .lp-topo-inner {
   max-width: 1220px;
@@ -438,7 +349,7 @@
   width: 35px;
   height: 35px;
   border-radius: 11px;
-  background: linear-gradient(135deg, var(--marca-300), var(--apoio));
+  background: linear-gradient(135deg, var(--ciano-300), var(--azul-600));
   display: grid;
   place-items: center;
   color: #04122a;
@@ -446,7 +357,7 @@
   font-size: 13px;
   font-family: "Outfit", sans-serif;
   flex-shrink: 0;
-  box-shadow: 0 8px 24px -10px rgba(16, 185, 129, 0.9);
+  box-shadow: 0 8px 26px -10px rgba(34, 211, 238, 0.9);
 }
 
 .lp-menu { display: flex; gap: 3px; margin-left: auto; }
@@ -457,15 +368,15 @@
   color: var(--claro-2);
   transition: color 0.2s ease, background 0.2s ease;
 }
-.lp-menu a:hover { color: #fff; background: rgba(255, 255, 255, 0.07); }
+.lp-menu a:hover { color: #fff; background: rgba(148, 187, 255, 0.09); }
 
 .lp-topo-acoes { display: flex; align-items: center; gap: 8px; }
 
 .lp-topo-hamburguer {
   display: none;
   margin-left: auto;
-  background: rgba(255, 255, 255, 0.09);
-  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(148, 187, 255, 0.1);
+  border: 1px solid rgba(148, 187, 255, 0.2);
   color: #fff;
   border-radius: 11px;
   padding: 9px;
@@ -475,9 +386,9 @@
 .lp-menu-mobile {
   position: relative;
   z-index: 70;
-  background: rgba(4, 8, 26, 0.97);
+  background: rgba(2, 6, 15, 0.97);
   backdrop-filter: blur(18px);
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 1px solid var(--linha);
   padding: 12px 22px 24px;
   display: flex;
   flex-direction: column;
@@ -486,7 +397,7 @@
   padding: 14px 4px;
   font-size: 16px;
   color: var(--claro-2);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid var(--linha);
 }
 .lp-menu-mobile-acoes { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
 
@@ -496,20 +407,17 @@
   position: relative;
   z-index: 1;
   margin-top: -73px;
-  padding: 170px 0 96px;
-  background:
-    radial-gradient(820px 460px at 74% 4%, rgba(16, 185, 129, 0.22), transparent 60%),
-    radial-gradient(760px 420px at 6% 2%, rgba(59, 130, 246, 0.2), transparent 62%),
-    linear-gradient(168deg, var(--tinta-950) 0%, var(--tinta-900) 40%, var(--tinta-700) 100%);
-  overflow: hidden;
+  padding: 178px 0 96px;
 }
 
 .lp-hero-grade {
   display: grid;
-  grid-template-columns: 1.02fr 0.98fr;
+  grid-template-columns: 1.04fr 0.96fr;
   gap: 40px;
   align-items: center;
 }
+
+.lp-hero-texto { position: relative; }
 
 .lp-hero h1 {
   font-size: clamp(36px, 5vw, 62px);
@@ -518,7 +426,7 @@
 }
 .lp-hero h1 em {
   font-style: normal;
-  background: linear-gradient(100deg, var(--marca-300) 0%, var(--marca-400) 38%, var(--apoio-400) 100%);
+  background: linear-gradient(100deg, var(--ciano-200) 0%, var(--ciano) 40%, var(--azul-400) 100%);
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
@@ -537,26 +445,32 @@
   gap: 9px;
   padding: 8px 17px;
   border-radius: 999px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: rgba(148, 187, 255, 0.07);
+  border: 1px solid rgba(148, 187, 255, 0.18);
   font-size: 12.5px;
-  color: var(--marca-300);
+  color: var(--ciano-300);
   backdrop-filter: blur(12px);
 }
 
 .lp-confianca { list-style: none; padding: 0; margin: 30px 0 0; display: flex; flex-wrap: wrap; gap: 9px 24px; }
 .lp-confianca li { display: inline-flex; align-items: center; gap: 8px; font-size: 13.4px; color: var(--claro-3); }
-.lp-confianca svg { color: var(--marca-400); }
+.lp-confianca svg { color: var(--ciano); }
 
-/* Indicadores em vidro, com filete superior de marca. */
-.lp-indicadores { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-top: 70px; }
+.lp-indicadores {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 14px;
+  margin-top: 70px;
+}
 .lp-indicador {
   position: relative;
-  background: rgba(255, 255, 255, 0.045);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(10, 20, 48, 0.55);
+  border: 1px solid var(--linha);
   border-radius: var(--r);
   padding: 20px;
-  backdrop-filter: blur(14px);
+  backdrop-filter: blur(16px);
   overflow: hidden;
   transition: transform 0.24s ease, border-color 0.24s ease;
 }
@@ -565,10 +479,10 @@
   position: absolute;
   inset: 0 0 auto 0;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--marca-400), transparent);
-  opacity: 0.75;
+  background: linear-gradient(90deg, transparent, var(--ciano), transparent);
+  opacity: 0.8;
 }
-.lp-indicador:hover { transform: translateY(-4px); border-color: rgba(16, 185, 129, 0.34); }
+.lp-indicador:hover { transform: translateY(-4px); border-color: rgba(34, 211, 238, 0.4); }
 .lp-indicador b { display: block; font-size: 28px; font-family: "Outfit", sans-serif; color: #fff; }
 .lp-indicador span { font-size: 12.4px; color: var(--claro-3); }
 
@@ -577,7 +491,7 @@
   display: block;
   width: 23px;
   height: 36px;
-  border: 1.5px solid rgba(255, 255, 255, 0.26);
+  border: 1.5px solid rgba(148, 187, 255, 0.3);
   border-radius: 12px;
   position: relative;
 }
@@ -590,7 +504,7 @@
   height: 8px;
   margin-left: -1.5px;
   border-radius: 2px;
-  background: var(--marca-400);
+  background: var(--ciano);
   animation: lp-rolar 1.9s ease-in-out infinite;
 }
 @keyframes lp-rolar {
@@ -599,17 +513,33 @@
   100% { transform: translateY(0); opacity: 0; }
 }
 
+/* ---------------------------------------------------- cartões em vidro */
+
+/**
+ * Todos os cartões da página compartilham este vidro. Como o mundo passa por
+ * trás deles, o fundo precisa ser translúcido o bastante para deixar a cena
+ * viva e opaco o bastante para o texto sobreviver a qualquer quadro.
+ */
+.lp-pilar,
+.lp-passo,
+.lp-beneficio,
+.lp-publico,
+.lp-seguranca-item,
+.lp-faq-item {
+  background: linear-gradient(158deg, rgba(16, 29, 66, 0.72), rgba(4, 11, 28, 0.66));
+  border: 1px solid var(--linha);
+  backdrop-filter: blur(14px);
+}
+
 /* --------------------------------------------------------------- pilares */
 
-.lp-pilares { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.lp-pilares { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.lp-pilares > .revelar { height: 100%; }
 .lp-pilar {
   position: relative;
   height: 100%;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
-  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--r-lg);
   padding: 32px 28px;
-  backdrop-filter: blur(12px);
   overflow: hidden;
   transition: transform 0.26s cubic-bezier(0.22, 0.8, 0.3, 1), border-color 0.26s ease, box-shadow 0.26s ease;
 }
@@ -618,11 +548,11 @@
   position: absolute;
   inset: auto -30% -60% -30%;
   height: 160px;
-  background: radial-gradient(ellipse at 50% 0%, rgba(16, 185, 129, 0.22), transparent 70%);
+  background: radial-gradient(ellipse at 50% 0%, rgba(34, 211, 238, 0.24), transparent 70%);
   opacity: 0;
   transition: opacity 0.3s ease;
 }
-.lp-pilar:hover { transform: translateY(-6px); border-color: rgba(16, 185, 129, 0.32); box-shadow: var(--sombra-3); }
+.lp-pilar:hover { transform: translateY(-6px); border-color: rgba(34, 211, 238, 0.36); box-shadow: var(--sombra-3); }
 .lp-pilar:hover::after { opacity: 1; }
 .lp-pilar-icone {
   position: relative;
@@ -631,10 +561,10 @@
   border-radius: 14px;
   display: grid;
   place-items: center;
-  color: #04231a;
-  background: linear-gradient(135deg, var(--marca-300), var(--marca-600));
+  color: #041826;
+  background: linear-gradient(135deg, var(--ciano-300), var(--azul-600));
   margin-bottom: 20px;
-  box-shadow: 0 12px 30px -14px rgba(16, 185, 129, 0.95);
+  box-shadow: 0 12px 32px -14px rgba(34, 211, 238, 0.95);
 }
 .lp-pilar h3 { font-size: 19px; margin-bottom: 10px; }
 .lp-pilar p { margin: 0; font-size: 15px; line-height: 1.66; color: var(--claro-2); }
@@ -643,57 +573,15 @@
 
 .lp-feature-grade {
   display: grid;
-  grid-template-columns: 0.92fr 1.08fr;
-  gap: 60px;
+  grid-template-columns: 0.94fr 1.06fr;
+  gap: 56px;
   align-items: center;
 }
-.lp-feature-grade.invertida { grid-template-columns: 1.08fr 0.92fr; }
+.lp-feature-grade.invertida { grid-template-columns: 1.06fr 0.94fr; }
 .lp-feature-grade.invertida .lp-feature-texto { order: 2; }
-.lp-feature-grade.invertida .lp-feature-visual { order: 1; }
+.lp-feature-grade.invertida .lp-janela { order: 1; }
 
-/* O texto ganha um scrim próprio: a cena 3D transborda a coluna vizinha e
-   passaria por trás dele sem isso. */
-.lp-feature-texto { position: relative; z-index: 6; }
-.lp-feature-texto::before {
-  content: "";
-  position: absolute;
-  inset: -12% -18% -12% -30%;
-  background: radial-gradient(ellipse at 40% 50%, rgba(7, 14, 34, 0.86) 0%, rgba(7, 14, 34, 0) 72%);
-  pointer-events: none;
-  z-index: -1;
-}
-.fundo-noite .lp-feature-texto::before {
-  background: radial-gradient(ellipse at 40% 50%, rgba(11, 20, 46, 0.88) 0%, rgba(11, 20, 46, 0) 72%);
-}
-.fundo-abismo .lp-feature-texto::before {
-  background: radial-gradient(ellipse at 40% 50%, rgba(4, 8, 26, 0.88) 0%, rgba(4, 8, 26, 0) 72%);
-}
-.fundo-claro .lp-feature-texto::before,
-.fundo-papel .lp-feature-texto::before {
-  background: radial-gradient(ellipse at 40% 50%, rgba(255, 255, 255, 0.9) 0%, rgba(255, 255, 255, 0) 72%);
-}
-
-/* ------------------------------------------------- texto acima do palco 3D
-
-   O canvas fica em z-index 5 para não ser encoberto pelos fundos das seções.
-   Todo bloco de leitura e todo alvo de clique precisa, portanto, subir acima
-   dele — senão a cena passaria por cima do texto e dos botões. */
-.lp-hero-texto,
-.lp-indicadores,
-.lp-cabecalho,
-.lp-pilares,
-.lp-passos,
-.lp-beneficios-grade,
-.lp-publicos,
-.lp-seguranca-lista,
-.lp-faq,
-.lp-cta > .revelar:not(.lp-cta-visual),
-.lp-rodape {
-  position: relative;
-  z-index: 6;
-}
-
-.lp-feature-visual { width: 100%; }
+.lp-feature-texto { position: relative; z-index: 2; }
 
 .lp-beneficios { list-style: none; padding: 0; margin: 30px 0 0; display: grid; gap: 13px; }
 .lp-beneficios li {
@@ -704,52 +592,50 @@
   line-height: 1.52;
   color: var(--claro);
 }
-.lp-beneficios svg { color: var(--marca-400); flex-shrink: 0; margin-top: 2px; }
-.fundo-claro .lp-beneficios li,
-.fundo-papel .lp-beneficios li { color: var(--texto); }
-.fundo-claro .lp-beneficios svg,
-.fundo-papel .lp-beneficios svg { color: var(--marca-600); }
+.lp-beneficios svg { color: var(--ciano); flex-shrink: 0; margin-top: 2px; }
 
 /* ----------------------------------------------------------------- passos */
 
-.lp-passos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.lp-passos { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+.lp-passos > .revelar { height: 100%; }
 .lp-passo {
   position: relative;
   height: 100%;
-  background: linear-gradient(160deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015));
-  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--r-lg);
   padding: 34px 28px;
-  backdrop-filter: blur(12px);
   transition: transform 0.26s ease, border-color 0.26s ease;
 }
-.lp-passo:hover { transform: translateY(-6px); border-color: rgba(16, 185, 129, 0.3); }
+.lp-passo:hover { transform: translateY(-6px); border-color: rgba(34, 211, 238, 0.34); }
 .lp-passo-num {
   display: grid;
   place-items: center;
   width: 42px;
   height: 42px;
   border-radius: 13px;
-  background: linear-gradient(135deg, var(--marca-300), var(--marca-600));
-  color: #04231a;
+  background: linear-gradient(135deg, var(--ciano-300), var(--azul-600));
+  color: #041826;
   font-family: "Outfit", sans-serif;
   font-weight: 700;
   font-size: 17px;
   margin-bottom: 20px;
-  box-shadow: 0 12px 28px -14px rgba(16, 185, 129, 0.9);
+  box-shadow: 0 12px 30px -14px rgba(34, 211, 238, 0.9);
 }
 .lp-passo h3 { font-size: 19px; margin-bottom: 10px; }
 .lp-passo p { margin: 0; font-size: 15px; line-height: 1.66; color: var(--claro-2); }
 
 /* ------------------------------------------------------------ benefícios */
 
-.lp-beneficios-grade { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+.lp-beneficios-grade {
+  position: relative;
+  z-index: 2;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+}
 .lp-beneficios-grade > .revelar { height: 100%; }
 
 .lp-beneficio {
   height: 100%;
-  background: var(--papel);
-  border: 1px solid var(--linha);
   border-radius: var(--r-lg);
   padding: 28px 26px;
   transition: transform 0.26s ease, box-shadow 0.26s ease, border-color 0.26s ease;
@@ -757,7 +643,7 @@
 .lp-beneficio:hover {
   transform: translateY(-6px);
   box-shadow: var(--sombra-2);
-  border-color: rgba(16, 185, 129, 0.36);
+  border-color: rgba(34, 211, 238, 0.36);
 }
 .lp-beneficio-icone {
   width: 42px;
@@ -765,17 +651,17 @@
   border-radius: 13px;
   display: grid;
   place-items: center;
-  color: #fff;
-  background: linear-gradient(135deg, var(--marca-600), var(--marca));
+  color: #041826;
+  background: linear-gradient(135deg, var(--ciano), var(--azul-400));
   margin-bottom: 18px;
-  box-shadow: 0 10px 24px -12px rgba(16, 185, 129, 0.8);
+  box-shadow: 0 10px 26px -12px rgba(34, 211, 238, 0.85);
 }
-.lp-beneficio h3 { font-size: 17px; margin-bottom: 9px; color: var(--texto); }
-.lp-beneficio p { margin: 0; font-size: 14.6px; line-height: 1.64; color: var(--texto-2); }
+.lp-beneficio h3 { font-size: 17px; margin-bottom: 9px; color: #fff; }
+.lp-beneficio p { margin: 0; font-size: 14.6px; line-height: 1.64; color: var(--claro-2); }
 
 /* -------------------------------------------------------------- para quem */
 
-.lp-publicos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.lp-publicos { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
 .lp-publicos > .revelar { height: 100%; }
 
 .lp-publico {
@@ -783,14 +669,11 @@
   display: flex;
   gap: 15px;
   align-items: flex-start;
-  background: linear-gradient(150deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.015));
-  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--r);
   padding: 22px;
-  backdrop-filter: blur(10px);
   transition: transform 0.24s ease, border-color 0.24s ease;
 }
-.lp-publico:hover { transform: translateY(-4px); border-color: rgba(59, 130, 246, 0.36); }
+.lp-publico:hover { transform: translateY(-4px); border-color: rgba(59, 130, 246, 0.4); }
 .lp-publico-icone {
   width: 38px;
   height: 38px;
@@ -798,8 +681,8 @@
   border-radius: 11px;
   display: grid;
   place-items: center;
-  color: var(--apoio-300);
-  background: rgba(59, 130, 246, 0.16);
+  color: var(--azul-300);
+  background: rgba(59, 130, 246, 0.18);
 }
 .lp-publico h3 { font-size: 16px; margin-bottom: 6px; }
 .lp-publico p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--claro-2); }
@@ -811,11 +694,8 @@
   display: flex;
   gap: 15px;
   align-items: flex-start;
-  background: linear-gradient(150deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
-  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: var(--r);
   padding: 20px 22px;
-  backdrop-filter: blur(10px);
 }
 .lp-seguranca-item > span {
   width: 38px;
@@ -824,23 +704,21 @@
   border-radius: 11px;
   display: grid;
   place-items: center;
-  color: var(--marca-300);
-  background: rgba(16, 185, 129, 0.14);
+  color: var(--ciano-300);
+  background: rgba(34, 211, 238, 0.15);
 }
 .lp-seguranca-item h3 { font-size: 16px; margin-bottom: 6px; }
 .lp-seguranca-item p { margin: 0; font-size: 14.4px; line-height: 1.62; color: var(--claro-2); }
 
 /* -------------------------------------------------------------------- FAQ */
 
-.lp-faq { display: grid; gap: 11px; }
+.lp-faq { position: relative; z-index: 2; display: grid; gap: 11px; }
 .lp-faq-item {
-  background: var(--papel);
-  border: 1px solid var(--linha);
   border-radius: var(--r);
   overflow: hidden;
   transition: border-color 0.24s ease, box-shadow 0.24s ease;
 }
-.lp-faq-item.aberto { border-color: rgba(16, 185, 129, 0.42); box-shadow: var(--sombra-2); }
+.lp-faq-item.aberto { border-color: rgba(34, 211, 238, 0.45); box-shadow: var(--sombra-2); }
 .lp-faq-pergunta {
   width: 100%;
   display: flex;
@@ -855,9 +733,9 @@
   font-family: "Outfit", "IBM Plex Sans", sans-serif;
   font-size: 16px;
   font-weight: 600;
-  color: var(--texto);
+  color: #fff;
 }
-.lp-faq-pergunta svg { color: var(--marca-600); flex-shrink: 0; }
+.lp-faq-pergunta svg { color: var(--ciano); flex-shrink: 0; }
 .lp-faq-resposta {
   display: grid;
   grid-template-rows: 0fr;
@@ -870,21 +748,22 @@
   padding: 0 24px;
   font-size: 15px;
   line-height: 1.7;
-  color: var(--texto-2);
+  color: var(--claro-2);
 }
 .lp-faq-item.aberto .lp-faq-resposta > p { padding-bottom: 23px; }
 
 /* -------------------------------------------------------------- CTA final */
 
-.lp-cta-secao { padding: 110px 0 120px; }
+.lp-cta-secao { padding: 150px 0 170px; }
 .lp-cta {
+  position: relative;
+  z-index: 2;
   display: grid;
   grid-template-columns: 1fr;
   text-align: center;
   justify-items: center;
-  gap: 0;
-  padding: 0;
 }
+.lp-cta .lp-veu { display: flex; flex-direction: column; align-items: center; }
 .lp-cta h2 {
   font-size: clamp(32px, 4.2vw, 54px);
   line-height: 1.06;
@@ -899,17 +778,17 @@
 }
 .lp-cta .lp-botoes { justify-content: center; }
 .lp-cta-rodape { display: block; margin-top: 20px; font-size: 13px; color: var(--claro-3); }
-.lp-cta-visual { margin-top: 12px; }
 
 /* ---------------------------------------------------------------- rodapé */
 
 .lp-rodape {
   position: relative;
-  z-index: 1;
-  background: var(--tinta-950);
+  z-index: 2;
+  background: linear-gradient(180deg, rgba(2, 6, 15, 0.86), var(--vazio) 40%);
   color: var(--claro-3);
   padding: 68px 0 28px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid var(--linha);
+  backdrop-filter: blur(10px);
 }
 .lp-rodape-grade { display: grid; grid-template-columns: 1.6fr repeat(4, 1fr); gap: 36px; }
 .lp-rodape-marca { display: flex; flex-direction: column; gap: 11px; }
@@ -924,7 +803,7 @@
 }
 .lp-rodape ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
 .lp-rodape a { font-size: 13.8px; transition: color 0.2s ease; }
-.lp-rodape a:hover { color: var(--marca-300); }
+.lp-rodape a:hover { color: var(--ciano-300); }
 .lp-rodape-base {
   display: flex;
   flex-wrap: wrap;
@@ -932,7 +811,7 @@
   gap: 10px;
   margin-top: 46px;
   padding-top: 24px;
-  border-top: 1px solid rgba(255, 255, 255, 0.07);
+  border-top: 1px solid var(--linha);
   font-size: 12.6px;
 }
 
@@ -951,24 +830,37 @@
 
 /* ------------------------------------------------------------- responsivo */
 
+/* Tablet: mantém a profundidade, com colunas menos extremas. */
+@media (max-width: 1180px) {
+  .lp-secao { padding: 110px 0; }
+  .lp-janela-alta { min-height: 60vh; }
+  .lp-janela-media { min-height: 50vh; }
+  .lp-feature-grade,
+  .lp-feature-grade.invertida { gap: 40px; }
+}
+
 @media (max-width: 1080px) {
   .lp-menu, .lp-topo-acoes { display: none; }
   .lp-topo-hamburguer { display: inline-grid; place-items: center; }
 
-  .lp-hero-grade { grid-template-columns: 1fr; gap: 20px; }
+  /**
+   * Uma coluna só. A janela do mundo passa a ficar ACIMA do texto em todas as
+   * seções — a câmera, em telas estreitas, também sobe o assunto na tela, e as
+   * duas coisas juntas mantêm cena e leitura separadas verticalmente.
+   */
+  .lp-hero-grade { grid-template-columns: 1fr; gap: 12px; }
   .lp-hero-texto { order: 2; }
-  .lp-hero-visual { order: 1; }
+  .lp-hero-grade .lp-janela { order: 1; }
   .lp-hero h1, .lp-lead { max-width: none; }
 
   .lp-feature-grade,
-  .lp-feature-grade.invertida { grid-template-columns: 1fr; gap: 24px; }
-  /* Em coluna única a cena vem sempre antes do texto: alternar o lado não faz
-     sentido sem duas colunas e só atrapalharia a leitura. */
+  .lp-feature-grade.invertida { grid-template-columns: 1fr; gap: 20px; }
   .lp-feature-grade .lp-feature-texto,
   .lp-feature-grade.invertida .lp-feature-texto { order: 2; }
-  .lp-feature-grade .lp-feature-visual,
-  .lp-feature-grade.invertida .lp-feature-visual { order: 1; }
-  .lp-feature-texto::before { inset: -8% -10%; }
+  .lp-feature-grade .lp-janela,
+  .lp-feature-grade.invertida .lp-janela { order: 1; }
+
+  .lp-veu::before { inset: -10% -14%; }
 
   .lp-pilares, .lp-passos, .lp-beneficios-grade, .lp-publicos { grid-template-columns: repeat(2, 1fr); }
   .lp-rodape-grade { grid-template-columns: repeat(3, 1fr); }
@@ -978,13 +870,13 @@
 @media (max-width: 720px) {
   .lp-wrap { padding: 0 18px; }
   .lp-topo-inner { padding: 13px 18px; }
-  .lp-secao { padding: 76px 0; }
-  .lp-hero { padding: 130px 0 70px; }
+  .lp-secao { padding: 78px 0; }
+  .lp-hero { padding: 132px 0 70px; }
+  .lp-cta-secao { padding: 100px 0 110px; }
 
-  /* Cenas menores no celular — presentes, mas com menos área de pintura. */
-  .lp-slot-alta { min-height: 340px; }
-  .lp-slot-media { min-height: 300px; }
-  .lp-slot-baixa { min-height: 230px; }
+  /* A cena continua presente no celular, com menos área de pintura. */
+  .lp-janela-alta { min-height: 44vh; max-height: 420px; }
+  .lp-janela-media { min-height: 34vh; max-height: 340px; }
 
   .lp-indicadores { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 44px; }
   .lp-indicador { padding: 16px; }
@@ -993,7 +885,6 @@
   .lp-pilares, .lp-passos, .lp-beneficios-grade, .lp-publicos { grid-template-columns: 1fr; }
   .lp-botoes .lp-btn { flex: 1 1 100%; }
   .lp-dica-rolagem { display: none; }
-  .lp-emenda { height: 60px; margin-top: -60px; }
 
   .lp-rodape-grade { grid-template-columns: 1fr 1fr; }
   .lp-rodape { padding: 50px 0 24px; }
@@ -1004,6 +895,7 @@
 @media (prefers-reduced-motion: reduce) {
   .lp-root .revelar { opacity: 1; transform: none; transition: none; }
   .lp-dica-rolagem i::after { animation: none; }
+  .lp-fundo-aurora { animation: none; }
   .lp-btn:hover,
   .lp-pilar:hover,
   .lp-passo:hover,

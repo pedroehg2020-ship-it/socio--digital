@@ -1,18 +1,23 @@
 /**
  * Blocos reutilizáveis da página inicial.
  *
- * A landing inteira é montada com estes componentes — nenhuma seção repete
- * marcação. Trocar o espaçamento, a tipografia ou o ritmo de animação aqui
- * muda a página toda.
+ * Mudança de conceito em relação à versão anterior: a coluna que antes
+ * recebia uma "ilustração 3D dentro de uma caixa" agora é uma **janela** —
+ * um espaço deliberadamente vazio no HTML por onde o mundo 3D aparece. Quem
+ * desenha ali é a câmera, que enquadra a região daquela seção exatamente
+ * naquele lado da tela.
+ *
+ * O texto sempre viaja dentro de uma zona segura (`lp-veu`), um véu de
+ * gradiente que mora na camada de conteúdo, acima do canvas. É ele que
+ * garante contraste de leitura sem precisar escurecer a cena inteira.
  */
 
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import Icon from "@/components/Icons";
-import Slot3D from "@/components/landing/Slot3D";
 import { useRevelar } from "@/lib/animacoes";
 
-/* -------------------------------------------------------- AnimatedSection */
+/* -------------------------------------------------------------- Revelar */
 
 /** Revela o conteúdo quando ele entra na tela. Respeita movimento reduzido. */
 export function Revelar({ children, atraso = 0, variante = "sobe", className = "", tag: Tag = "div" }) {
@@ -28,14 +33,27 @@ export function Revelar({ children, atraso = 0, variante = "sobe", className = "
   );
 }
 
+/* --------------------------------------------------------------- Janela */
+
+/**
+ * Espaço reservado para o mundo 3D. Não desenha nada e não recebe evento:
+ * existe só para que o grid mantenha metade da largura livre e a câmera
+ * tenha para onde mandar a cena.
+ */
+export function Janela({ altura = "media" }) {
+  return <div className={`lp-janela lp-janela-${altura}`} aria-hidden="true" />;
+}
+
 /* ----------------------------------------------------------- SectionHeader */
 
-export function SectionHeader({ sobretitulo, titulo, texto, centralizado = false, claro = false }) {
+export function SectionHeader({ sobretitulo, titulo, texto, centralizado = false }) {
   return (
-    <Revelar className={`lp-cabecalho ${centralizado ? "centro" : ""} ${claro ? "claro" : ""}`}>
-      {sobretitulo ? <div className="lp-sobretitulo">{sobretitulo}</div> : null}
-      <h2 className="lp-h2">{titulo}</h2>
-      {texto ? <p className="lp-sub">{texto}</p> : null}
+    <Revelar className={`lp-cabecalho ${centralizado ? "centro" : ""}`}>
+      <div className="lp-veu">
+        {sobretitulo ? <div className="lp-sobretitulo">{sobretitulo}</div> : null}
+        <h2 className="lp-h2">{titulo}</h2>
+        {texto ? <p className="lp-sub">{texto}</p> : null}
+      </div>
     </Revelar>
   );
 }
@@ -43,12 +61,12 @@ export function SectionHeader({ sobretitulo, titulo, texto, centralizado = false
 /* ---------------------------------------------------------- FeatureSection */
 
 /**
- * Seção completa de uma funcionalidade: texto de um lado, cena 3D do outro.
- * `inverter` troca os lados — é o que cria o ritmo alternado da rolagem.
+ * Seção de funcionalidade: texto de um lado, janela para o mundo do outro.
+ * `inverter` troca os lados — e o marco correspondente em `rota.js` usa o
+ * mesmo sinal, para que câmera e layout nunca discordem sobre onde há espaço.
  */
 export function FeatureSection({
   id,
-  chave3d,
   icone,
   sobretitulo,
   titulo,
@@ -57,55 +75,53 @@ export function FeatureSection({
   beneficios = [],
   cta,
   inverter = false,
-  fundo = "claro",
 }) {
   return (
-    <section id={id} className={`lp-secao lp-feature fundo-${fundo}`}>
-      {fundo !== "claro" && fundo !== "papel" ? <span className="lp-grade" aria-hidden="true" /> : null}
+    <section id={id} className="lp-secao lp-feature">
       <div className="lp-wrap">
         <div className={`lp-feature-grade ${inverter ? "invertida" : ""}`}>
           <div className="lp-feature-texto">
-            <Revelar variante="fade">
-              <div className="lp-sobretitulo">
-                <Icon name={icone} size={14} /> {sobretitulo}
-              </div>
-            </Revelar>
-
-            <Revelar atraso={70}>
-              <h2 className="lp-h2">{titulo}</h2>
-            </Revelar>
-
-            <Revelar atraso={120}>
-              <p className="lp-frase">{frase}</p>
-            </Revelar>
-
-            <Revelar atraso={170}>
-              <p className="lp-texto">{texto}</p>
-            </Revelar>
-
-            <Revelar atraso={220}>
-              <ul className="lp-beneficios">
-                {beneficios.map((b) => (
-                  <li key={b}>
-                    <Icon name="check" size={15} />
-                    <span>{b}</span>
-                  </li>
-                ))}
-              </ul>
-            </Revelar>
-
-            {cta ? (
-              <Revelar atraso={280}>
-                <Link to={cta.para} className="lp-link-cta">
-                  {cta.texto} <Icon name="arrowUpRight" size={15} />
-                </Link>
+            <div className="lp-veu">
+              <Revelar variante="fade">
+                <div className="lp-sobretitulo">
+                  <Icon name={icone} size={14} /> {sobretitulo}
+                </div>
               </Revelar>
-            ) : null}
+
+              <Revelar atraso={70}>
+                <h2 className="lp-h2">{titulo}</h2>
+              </Revelar>
+
+              <Revelar atraso={120}>
+                <p className="lp-frase">{frase}</p>
+              </Revelar>
+
+              <Revelar atraso={170}>
+                <p className="lp-texto">{texto}</p>
+              </Revelar>
+
+              <Revelar atraso={220}>
+                <ul className="lp-beneficios">
+                  {beneficios.map((b) => (
+                    <li key={b}>
+                      <Icon name="check" size={15} />
+                      <span>{b}</span>
+                    </li>
+                  ))}
+                </ul>
+              </Revelar>
+
+              {cta ? (
+                <Revelar atraso={280}>
+                  <Link to={cta.para} className="lp-link-cta">
+                    {cta.texto} <Icon name="arrowUpRight" size={15} />
+                  </Link>
+                </Revelar>
+              ) : null}
+            </div>
           </div>
 
-          <Revelar variante="escala" atraso={120} className="lp-feature-visual">
-            <Slot3D chave={chave3d} icone={icone} altura="media" />
-          </Revelar>
+          <Janela />
         </div>
       </div>
     </section>
@@ -194,42 +210,34 @@ export function CTASection({
   principal = { texto: "Criar conta grátis", para: "/cadastro" },
   secundario = { texto: "Entrar", para: "/login" },
   rodape,
-  chave3d = "convite",
 }) {
   return (
-    <section className="lp-secao fundo-abismo lp-cta-secao">
-      <span className="lp-grade" aria-hidden="true" />
+    <section id="cta" className="lp-secao lp-cta-secao">
       <div className="lp-wrap">
         <div className="lp-cta">
-          <Revelar variante="fade">
-            <h2>{titulo}</h2>
-          </Revelar>
-          <Revelar atraso={90}>
-            <p>{texto}</p>
-          </Revelar>
-          <Revelar atraso={160}>
-            <div className="lp-botoes">
-              <Link to={principal.para} className="lp-btn lp-btn-principal lp-btn-lg">
-                <Icon name="bolt" size={17} /> {principal.texto}
-              </Link>
-              <Link to={secundario.para} className="lp-btn lp-btn-vidro lp-btn-lg">
-                {secundario.texto}
-              </Link>
-            </div>
-          </Revelar>
-          {rodape ? (
-            <Revelar atraso={210}>
-              <span className="lp-cta-rodape">{rodape}</span>
+          <div className="lp-veu lp-veu-forte">
+            <Revelar variante="fade">
+              <h2>{titulo}</h2>
             </Revelar>
-          ) : null}
-
-          {/* A cena de encerramento fica embaixo do texto e ocupa a largura
-              toda: é o último momento de impacto antes do rodapé. */}
-          {chave3d ? (
-            <Revelar variante="escala" atraso={140} className="lp-cta-visual">
-              <Slot3D chave={chave3d} icone="bolt" altura="alta" />
+            <Revelar atraso={90}>
+              <p>{texto}</p>
             </Revelar>
-          ) : null}
+            <Revelar atraso={160}>
+              <div className="lp-botoes">
+                <Link to={principal.para} className="lp-btn lp-btn-principal lp-btn-lg">
+                  <Icon name="bolt" size={17} /> {principal.texto}
+                </Link>
+                <Link to={secundario.para} className="lp-btn lp-btn-vidro lp-btn-lg">
+                  {secundario.texto}
+                </Link>
+              </div>
+            </Revelar>
+            {rodape ? (
+              <Revelar atraso={210}>
+                <span className="lp-cta-rodape">{rodape}</span>
+              </Revelar>
+            ) : null}
+          </div>
         </div>
       </div>
     </section>

@@ -1,20 +1,34 @@
+/**
+ * Página pública.
+ *
+ * A página não é mais "seções com fundo próprio e uma figura 3D ao lado".
+ * Ela é uma camada de conteúdo transparente correndo por cima de um ambiente
+ * tridimensional contínuo: as seções não têm fundo, o mundo aparece por trás
+ * delas o tempo todo, e cada seção reserva metade da tela para a região que a
+ * câmera vai enquadrar naquele ponto da viagem.
+ *
+ * REGRA ESTRUTURAL: a ordem das <section> aqui precisa bater exatamente com a
+ * ordem de `MARCOS` em `mundo/rota.js` — é essa lista de ids que vira o
+ * trilho da câmera. Ao inserir uma seção nova, insira também o marco dela.
+ */
+
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import Icon from "@/components/Icons";
 import Cabecalho from "@/components/landing/Cabecalho";
 import Rodape from "@/components/landing/Rodape";
-import Slot3D from "@/components/landing/Slot3D";
 import {
   AudienceCard,
   BenefitCard,
   CTASection,
   FAQ,
   FeatureSection,
+  Janela,
   Revelar,
   SectionHeader,
   StepCard,
 } from "@/components/landing/Blocos";
-import { temWebGL } from "@/components/landing/palco";
+import { temWebGL } from "@/components/landing/mundo/aparelho";
 import {
   BENEFICIOS,
   FUNCIONALIDADES,
@@ -29,14 +43,11 @@ import { useContador, useRevelar } from "@/lib/animacoes";
 import "@/styles/landing.css";
 
 /**
- * O palco 3D (three.js + React Three Fiber) sai em um chunk separado e só é
- * baixado quando o dispositivo tem WebGL. Em quem não tem, a página cai no
- * fallback em CSS dos próprios slots e nem chega a pedir o arquivo.
+ * O mundo 3D (three.js + React Three Fiber) sai em um chunk separado e só é
+ * baixado quando o aparelho tem WebGL. Em quem não tem, a página cai no fundo
+ * animado em CSS e nem chega a pedir o arquivo.
  */
 const Palco3D = lazy(() => import("@/components/landing/Palco3D"));
-
-/** Sequência de fundos das seções de funcionalidade. */
-const FUNDOS_FEATURE = ["noite", "tinta", "abismo", "tinta", "noite", "abismo", "tinta", "noite"];
 
 /** Indicador do hero: o número sobe de zero quando entra na tela. */
 function Indicador({ valor, sufixo, rotulo }) {
@@ -78,6 +89,13 @@ export default function Landing() {
 
   return (
     <div className={classes}>
+      {/* Fundo em CSS: fica sempre presente como base de cor e assume
+          sozinho a página quando não há WebGL. */}
+      <div className="lp-fundo" aria-hidden="true">
+        <span className="lp-fundo-aurora" />
+        <span className="lp-fundo-grade" />
+      </div>
+
       {ativo3d ? (
         <Suspense fallback={null}>
           <Palco3D />
@@ -87,60 +105,60 @@ export default function Landing() {
       <Cabecalho />
 
       {/* ---------------------------------------------------------- hero */}
-      <section className="lp-hero">
+      <section id="hero" className="lp-hero">
         <div className="lp-wrap">
           <div className="lp-hero-grade">
             <div className="lp-hero-texto">
-              <Revelar variante="fade">
-                <span className="lp-selo">
-                  <Icon name="sparkles" size={14} /> Gestão + assistente executivo de IA
-                </span>
-              </Revelar>
+              <div className="lp-veu lp-veu-forte">
+                <Revelar variante="fade">
+                  <span className="lp-selo">
+                    <Icon name="sparkles" size={14} /> Gestão + assistente executivo de IA
+                  </span>
+                </Revelar>
 
-              <Revelar atraso={80}>
-                <h1>
-                  Um sistema que organiza a empresa <em>e um sócio que avisa</em> quando
-                  algo sai do lugar.
-                </h1>
-              </Revelar>
+                <Revelar atraso={80}>
+                  <h1>
+                    Um sistema que organiza a empresa <em>e um sócio que avisa</em> quando
+                    algo sai do lugar.
+                  </h1>
+                </Revelar>
 
-              <Revelar atraso={150}>
-                <p className="lp-lead">
-                  Vendas, contas a receber, contas a pagar, estoque, clientes e fluxo de
-                  caixa em um lugar só — com uma IA que lê os seus números e fala com
-                  você em português.
-                </p>
-              </Revelar>
+                <Revelar atraso={150}>
+                  <p className="lp-lead">
+                    Vendas, contas a receber, contas a pagar, estoque, clientes e fluxo de
+                    caixa em um lugar só — com uma IA que lê os seus números e fala com
+                    você em português.
+                  </p>
+                </Revelar>
 
-              <Revelar atraso={220}>
-                <div className="lp-botoes">
-                  <Link to="/cadastro" className="lp-btn lp-btn-principal lp-btn-lg">
-                    <Icon name="bolt" size={17} /> Criar conta grátis
-                  </Link>
-                  <Link to="/login" className="lp-btn lp-btn-vidro lp-btn-lg">
-                    Ver a demonstração
-                  </Link>
-                </div>
-              </Revelar>
+                <Revelar atraso={220}>
+                  <div className="lp-botoes">
+                    <Link to="/cadastro" className="lp-btn lp-btn-principal lp-btn-lg">
+                      <Icon name="bolt" size={17} /> Criar conta grátis
+                    </Link>
+                    <Link to="/login" className="lp-btn lp-btn-vidro lp-btn-lg">
+                      Ver a demonstração
+                    </Link>
+                  </div>
+                </Revelar>
 
-              <Revelar atraso={280}>
-                <ul className="lp-confianca">
-                  <li>
-                    <Icon name="check" size={14} /> Sem cartão de crédito
-                  </li>
-                  <li>
-                    <Icon name="check" size={14} /> Conta de demonstração pronta
-                  </li>
-                  <li>
-                    <Icon name="check" size={14} /> Funciona no celular
-                  </li>
-                </ul>
-              </Revelar>
+                <Revelar atraso={280}>
+                  <ul className="lp-confianca">
+                    <li>
+                      <Icon name="check" size={14} /> Sem cartão de crédito
+                    </li>
+                    <li>
+                      <Icon name="check" size={14} /> Conta de demonstração pronta
+                    </li>
+                    <li>
+                      <Icon name="check" size={14} /> Funciona no celular
+                    </li>
+                  </ul>
+                </Revelar>
+              </div>
             </div>
 
-            <Revelar variante="escala" atraso={120} className="lp-hero-visual">
-              <Slot3D chave="hero" icone="gauge" altura="alta" />
-            </Revelar>
+            <Janela altura="alta" />
           </div>
 
           <div className="lp-indicadores">
@@ -156,8 +174,7 @@ export default function Landing() {
       </section>
 
       {/* ------------------------------------------------- visão geral */}
-      <section id="funcionalidades" className="lp-secao fundo-tinta">
-        <span className="lp-grade" aria-hidden="true" />
+      <section id="funcionalidades" className="lp-secao">
         <div className="lp-wrap">
           <SectionHeader
             centralizado
@@ -182,68 +199,63 @@ export default function Landing() {
       </section>
 
       {/* -------------------------------- funcionalidades em seções */}
-      {/* Cada funcionalidade recebe um fundo da sequência: noite, tinta e
-          abismo se alternam para que duas seções vizinhas nunca tenham o mesmo
-          tratamento. "abismo" marca os momentos de maior impacto. */}
-      {FUNCIONALIDADES.map((f, i) => (
-        <FeatureSection key={f.id} {...f} fundo={FUNDOS_FEATURE[i % FUNDOS_FEATURE.length]} />
+      {FUNCIONALIDADES.map((f) => (
+        <FeatureSection key={f.id} {...f} />
       ))}
 
       {/* ------------------------------------------------------ painel */}
-      <section id="painel" className="lp-secao fundo-abismo lp-painel-secao">
-        <span className="lp-grade" aria-hidden="true" />
+      <section id="painel" className="lp-secao lp-feature">
         <div className="lp-wrap">
           <div className="lp-feature-grade invertida">
             <div className="lp-feature-texto">
-              <Revelar variante="fade">
-                <div className="lp-sobretitulo">
-                  <Icon name="gauge" size={14} /> Painel geral
-                </div>
-              </Revelar>
-              <Revelar atraso={70}>
-                <h2 className="lp-h2">A empresa inteira em uma tela só.</h2>
-              </Revelar>
-              <Revelar atraso={130}>
-                <p className="lp-texto">
-                  O painel junta o que os módulos produziram: receita e lucro do período,
-                  tendência das últimas semanas, progresso da meta, total a receber e a
-                  pagar da semana, títulos vencidos e produtos abaixo do mínimo. É a
-                  primeira tela para quem quer saber, em trinta segundos, se o mês está
-                  de pé.
-                </p>
-              </Revelar>
-              <Revelar atraso={190}>
-                <ul className="lp-beneficios">
-                  <li>
-                    <Icon name="check" size={15} />
-                    <span>Receita, lucro bruto e lucro líquido do período</span>
-                  </li>
-                  <li>
-                    <Icon name="check" size={15} />
-                    <span>Curva diária de receita e de pedidos</span>
-                  </li>
-                  <li>
-                    <Icon name="check" size={15} />
-                    <span>Vencimentos da semana e títulos em atraso</span>
-                  </li>
-                  <li>
-                    <Icon name="check" size={15} />
-                    <span>Reposição de estoque e clientes inativos</span>
-                  </li>
-                </ul>
-              </Revelar>
+              <div className="lp-veu">
+                <Revelar variante="fade">
+                  <div className="lp-sobretitulo">
+                    <Icon name="gauge" size={14} /> Painel geral
+                  </div>
+                </Revelar>
+                <Revelar atraso={70}>
+                  <h2 className="lp-h2">A empresa inteira em uma tela só.</h2>
+                </Revelar>
+                <Revelar atraso={130}>
+                  <p className="lp-texto">
+                    O painel junta o que os módulos produziram: receita e lucro do período,
+                    tendência das últimas semanas, progresso da meta, total a receber e a
+                    pagar da semana, títulos vencidos e produtos abaixo do mínimo. É a
+                    primeira tela para quem quer saber, em trinta segundos, se o mês está
+                    de pé.
+                  </p>
+                </Revelar>
+                <Revelar atraso={190}>
+                  <ul className="lp-beneficios">
+                    <li>
+                      <Icon name="check" size={15} />
+                      <span>Receita, lucro bruto e lucro líquido do período</span>
+                    </li>
+                    <li>
+                      <Icon name="check" size={15} />
+                      <span>Curva diária de receita e de pedidos</span>
+                    </li>
+                    <li>
+                      <Icon name="check" size={15} />
+                      <span>Vencimentos da semana e títulos em atraso</span>
+                    </li>
+                    <li>
+                      <Icon name="check" size={15} />
+                      <span>Reposição de estoque e clientes inativos</span>
+                    </li>
+                  </ul>
+                </Revelar>
+              </div>
             </div>
 
-            <Revelar variante="escala" atraso={120} className="lp-feature-visual">
-              <Slot3D chave="dashboard" icone="gauge" altura="media" />
-            </Revelar>
+            <Janela />
           </div>
         </div>
       </section>
 
       {/* ------------------------------------------------ como funciona */}
-      <section id="como-funciona" className="lp-secao fundo-noite">
-        <span className="lp-grade" aria-hidden="true" />
+      <section id="como-funciona" className="lp-secao">
         <div className="lp-wrap">
           <SectionHeader
             centralizado
@@ -262,7 +274,7 @@ export default function Landing() {
       </section>
 
       {/* --------------------------------------------------- benefícios */}
-      <section id="beneficios" className="lp-secao fundo-claro">
+      <section id="beneficios" className="lp-secao">
         <div className="lp-wrap">
           <SectionHeader
             centralizado
@@ -280,8 +292,7 @@ export default function Landing() {
       </section>
 
       {/* ----------------------------------------------------- para quem */}
-      <section id="para-quem" className="lp-secao fundo-noite">
-        <span className="lp-grade" aria-hidden="true" />
+      <section id="para-quem" className="lp-secao">
         <div className="lp-wrap">
           <SectionHeader
             centralizado
@@ -300,52 +311,51 @@ export default function Landing() {
       </section>
 
       {/* ------------------------------------------------------ segurança */}
-      <section id="seguranca" className="lp-secao fundo-abismo">
-        <span className="lp-grade" aria-hidden="true" />
+      <section id="seguranca" className="lp-secao lp-feature">
         <div className="lp-wrap">
           <div className="lp-feature-grade">
             <div className="lp-feature-texto">
-              <Revelar variante="fade">
-                <div className="lp-sobretitulo">
-                  <Icon name="shield" size={14} /> Segurança
-                </div>
-              </Revelar>
-              <Revelar atraso={70}>
-                <h2 className="lp-h2">Os seus dados ficam separados e a sua senha, ilegível.</h2>
-              </Revelar>
-              <Revelar atraso={120}>
-                <p className="lp-texto">
-                  Abaixo está o que o sistema faz hoje, descrito sem eufemismo. Não há
-                  certificação de terceiro a exibir — quando houver, ela aparece aqui.
-                </p>
-              </Revelar>
+              <div className="lp-veu">
+                <Revelar variante="fade">
+                  <div className="lp-sobretitulo">
+                    <Icon name="shield" size={14} /> Segurança
+                  </div>
+                </Revelar>
+                <Revelar atraso={70}>
+                  <h2 className="lp-h2">Os seus dados ficam separados e a sua senha, ilegível.</h2>
+                </Revelar>
+                <Revelar atraso={120}>
+                  <p className="lp-texto">
+                    Abaixo está o que o sistema faz hoje, descrito sem eufemismo. Não há
+                    certificação de terceiro a exibir — quando houver, ela aparece aqui.
+                  </p>
+                </Revelar>
 
-              <div className="lp-seguranca-lista">
-                {SEGURANCA.map((s, i) => (
-                  <Revelar key={s.titulo} atraso={150 + i * 80}>
-                    <article className="lp-seguranca-item">
-                      <span>
-                        <Icon name={s.icone} size={17} />
-                      </span>
-                      <div>
-                        <h3>{s.titulo}</h3>
-                        <p>{s.texto}</p>
-                      </div>
-                    </article>
-                  </Revelar>
-                ))}
+                <div className="lp-seguranca-lista">
+                  {SEGURANCA.map((s, i) => (
+                    <Revelar key={s.titulo} atraso={150 + i * 80}>
+                      <article className="lp-seguranca-item">
+                        <span>
+                          <Icon name={s.icone} size={17} />
+                        </span>
+                        <div>
+                          <h3>{s.titulo}</h3>
+                          <p>{s.texto}</p>
+                        </div>
+                      </article>
+                    </Revelar>
+                  ))}
+                </div>
               </div>
             </div>
 
-            <Revelar variante="escala" atraso={120} className="lp-feature-visual">
-              <Slot3D chave="seguranca" icone="shield" altura="media" />
-            </Revelar>
+            <Janela />
           </div>
         </div>
       </section>
 
       {/* ------------------------------------------------------------ FAQ */}
-      <section id="faq" className="lp-secao fundo-papel">
+      <section id="faq" className="lp-secao">
         <div className="lp-wrap lp-wrap-estreito">
           <SectionHeader
             centralizado
