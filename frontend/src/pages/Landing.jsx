@@ -1,379 +1,74 @@
 /**
- * Página pública.
+ * Página pública — etapa 1 da reconstrução.
  *
- * A página não é mais "seções com fundo próprio e uma figura 3D ao lado".
- * Ela é uma camada de conteúdo transparente correndo por cima de um ambiente
- * tridimensional contínuo: as seções não têm fundo, o mundo aparece por trás
- * delas o tempo todo, e cada seção reserva metade da tela para a região que a
- * câmera vai enquadrar naquele ponto da viagem.
+ * Contém apenas HERO e CASCATA, que são as duas seções em validação. As
+ * demais seções da landing antiga foram retiradas de propósito: o objetivo
+ * aqui é julgar o acabamento do padrão antes de replicá-lo.
  *
- * REGRA ESTRUTURAL: a ordem das <section> aqui precisa bater exatamente com a
- * ordem de `MARCOS` em `mundo/rota.js` — é essa lista de ids que vira o
- * trilho da câmera. Ao inserir uma seção nova, insira também o marco dela.
+ * Não há mais nada de WebGL nesta página. `three` e `@react-three/fiber`
+ * saíram do projeto — verifiquei que nenhuma outra área os usava.
  */
 
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import Icon from "@/components/Icons";
-import Cabecalho from "@/components/landing/Cabecalho";
-import Rodape from "@/components/landing/Rodape";
-import {
-  AudienceCard,
-  BenefitCard,
-  CTASection,
-  FAQ,
-  FeatureSection,
-  Janela,
-  Revelar,
-  SectionHeader,
-  StepCard,
-} from "@/components/landing/Blocos";
-import { temWebGL } from "@/components/landing/mundo/aparelho";
-import {
-  BENEFICIOS,
-  FUNCIONALIDADES,
-  INDICADORES,
-  PASSOS,
-  PERGUNTAS,
-  PILARES,
-  PUBLICO,
-  SEGURANCA,
-} from "@/data/landing";
-import { useContador, useRevelar } from "@/lib/animacoes";
+import Hero from "@/components/landing/Hero";
+import Cascata from "@/components/landing/Cascata";
 import "@/styles/landing.css";
 
-/**
- * O mundo 3D (three.js + React Three Fiber) sai em um chunk separado e só é
- * baixado quando o aparelho tem WebGL. Em quem não tem, a página cai no fundo
- * animado em CSS e nem chega a pedir o arquivo.
- */
-const Palco3D = lazy(() => import("@/components/landing/Palco3D"));
+function Topo() {
+  const [fixo, setFixo] = useState(false);
 
-/** Indicador do hero: o número sobe de zero quando entra na tela. */
-function Indicador({ valor, sufixo, rotulo }) {
-  const [ref, visivel] = useRevelar();
-  const atual = useContador(valor, { ativo: visivel });
+  useEffect(() => {
+    const aoRolar = () => setFixo(window.scrollY > 8);
+    aoRolar();
+    window.addEventListener("scroll", aoRolar, { passive: true });
+    return () => window.removeEventListener("scroll", aoRolar);
+  }, []);
+
   return (
-    <div className="lp-indicador" ref={ref}>
-      <b className="num">
-        {Math.round(atual)}
-        {sufixo}
-      </b>
-      <span>{rotulo}</span>
-    </div>
+    <header className={`lp-topo${fixo ? " lp-topo-fixo" : ""}`}>
+      <div className="sd-container lp-topo-interno">
+        <Link className="lp-marca" to="/">
+          <span className="lp-marca-simbolo" aria-hidden="true" />
+          Sócio Digital
+        </Link>
+        <nav className="lp-topo-acoes">
+          <Link className="lp-link" to="/login">
+            Entrar
+          </Link>
+          <Link className="sd-btn sd-btn-principal" to="/cadastro">
+            Começar agora
+          </Link>
+        </nav>
+      </div>
+    </header>
+  );
+}
+
+function Rodape() {
+  return (
+    <footer className="lp-rodape">
+      <div className="sd-container lp-rodape-interno">
+        <span className="lp-marca">
+          <span className="lp-marca-simbolo" aria-hidden="true" />
+          Sócio Digital
+        </span>
+        <p className="sd-nota">
+          © {new Date().getFullYear()} Sócio Digital. Todos os direitos reservados.
+        </p>
+      </div>
+    </footer>
   );
 }
 
 export default function Landing() {
-  const [ativo3d, setAtivo3d] = useState(false);
-  const [montado, setMontado] = useState(false);
-
-  useEffect(() => {
-    setAtivo3d(temWebGL());
-    setMontado(true);
-  }, []);
-
-  // Rolagem suave nas âncoras do menu.
-  useEffect(() => {
-    const anterior = document.documentElement.style.scrollBehavior;
-    document.documentElement.style.scrollBehavior = "smooth";
-    return () => {
-      document.documentElement.style.scrollBehavior = anterior;
-    };
-  }, []);
-
-  const classes = useMemo(
-    () => `lp-root ${montado && !ativo3d ? "sem-3d" : ""}`,
-    [montado, ativo3d]
-  );
-
   return (
-    <div className={classes}>
-      {/* Fundo em CSS: fica sempre presente como base de cor e assume
-          sozinho a página quando não há WebGL. */}
-      <div className="lp-fundo" aria-hidden="true">
-        <span className="lp-fundo-aurora" />
-        <span className="lp-fundo-grade" />
-      </div>
-
-      {ativo3d ? (
-        <Suspense fallback={null}>
-          <Palco3D />
-        </Suspense>
-      ) : null}
-
-      <Cabecalho />
-
-      {/* ---------------------------------------------------------- hero */}
-      <section id="hero" className="lp-hero">
-        <div className="lp-wrap">
-          <div className="lp-hero-grade">
-            <div className="lp-hero-texto">
-              <div className="lp-veu lp-veu-forte">
-                <Revelar variante="fade">
-                  <span className="lp-selo">
-                    <Icon name="sparkles" size={14} /> Gestão + assistente executivo de IA
-                  </span>
-                </Revelar>
-
-                <Revelar atraso={80}>
-                  <h1>
-                    Um sistema que organiza a empresa <em>e um sócio que avisa</em> quando
-                    algo sai do lugar.
-                  </h1>
-                </Revelar>
-
-                <Revelar atraso={150}>
-                  <p className="lp-lead">
-                    Vendas, contas a receber, contas a pagar, estoque, clientes e fluxo de
-                    caixa em um lugar só — com uma IA que lê os seus números e fala com
-                    você em português.
-                  </p>
-                </Revelar>
-
-                <Revelar atraso={220}>
-                  <div className="lp-botoes">
-                    <Link to="/cadastro" className="lp-btn lp-btn-principal lp-btn-lg">
-                      <Icon name="bolt" size={17} /> Criar conta grátis
-                    </Link>
-                    <Link to="/login" className="lp-btn lp-btn-vidro lp-btn-lg">
-                      Ver a demonstração
-                    </Link>
-                  </div>
-                </Revelar>
-
-                <Revelar atraso={280}>
-                  <ul className="lp-confianca">
-                    <li>
-                      <Icon name="check" size={14} /> Sem cartão de crédito
-                    </li>
-                    <li>
-                      <Icon name="check" size={14} /> Conta de demonstração pronta
-                    </li>
-                    <li>
-                      <Icon name="check" size={14} /> Funciona no celular
-                    </li>
-                  </ul>
-                </Revelar>
-              </div>
-            </div>
-
-            <Janela altura="alta" />
-          </div>
-
-          <div className="lp-indicadores">
-            {INDICADORES.map((m) => (
-              <Indicador key={m.rotulo} valor={m.valor} sufixo={m.sufixo} rotulo={m.rotulo} />
-            ))}
-          </div>
-        </div>
-
-        <span className="lp-dica-rolagem" aria-hidden="true">
-          <i />
-        </span>
-      </section>
-
-      {/* ------------------------------------------------- visão geral */}
-      <section id="funcionalidades" className="lp-secao">
-        <div className="lp-wrap">
-          <SectionHeader
-            centralizado
-            sobretitulo="A plataforma"
-            titulo="Tudo que a sua empresa precisa em um só lugar"
-            texto="Três camadas que trabalham sobre a mesma base de dados: o que você faz no dia, o dinheiro que isso movimenta e a leitura de negócio em cima dos dois."
-          />
-          <div className="lp-pilares">
-            {PILARES.map((p, i) => (
-              <Revelar key={p.titulo} atraso={i * 90} variante="escala">
-                <article className="lp-pilar">
-                  <span className="lp-pilar-icone">
-                    <Icon name={p.icone} size={20} />
-                  </span>
-                  <h3>{p.titulo}</h3>
-                  <p>{p.texto}</p>
-                </article>
-              </Revelar>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* -------------------------------- funcionalidades em seções */}
-      {FUNCIONALIDADES.map((f) => (
-        <FeatureSection key={f.id} {...f} />
-      ))}
-
-      {/* ------------------------------------------------------ painel */}
-      <section id="painel" className="lp-secao lp-feature">
-        <div className="lp-wrap">
-          <div className="lp-feature-grade invertida">
-            <div className="lp-feature-texto">
-              <div className="lp-veu">
-                <Revelar variante="fade">
-                  <div className="lp-sobretitulo">
-                    <Icon name="gauge" size={14} /> Painel geral
-                  </div>
-                </Revelar>
-                <Revelar atraso={70}>
-                  <h2 className="lp-h2">A empresa inteira em uma tela só.</h2>
-                </Revelar>
-                <Revelar atraso={130}>
-                  <p className="lp-texto">
-                    O painel junta o que os módulos produziram: receita e lucro do período,
-                    tendência das últimas semanas, progresso da meta, total a receber e a
-                    pagar da semana, títulos vencidos e produtos abaixo do mínimo. É a
-                    primeira tela para quem quer saber, em trinta segundos, se o mês está
-                    de pé.
-                  </p>
-                </Revelar>
-                <Revelar atraso={190}>
-                  <ul className="lp-beneficios">
-                    <li>
-                      <Icon name="check" size={15} />
-                      <span>Receita, lucro bruto e lucro líquido do período</span>
-                    </li>
-                    <li>
-                      <Icon name="check" size={15} />
-                      <span>Curva diária de receita e de pedidos</span>
-                    </li>
-                    <li>
-                      <Icon name="check" size={15} />
-                      <span>Vencimentos da semana e títulos em atraso</span>
-                    </li>
-                    <li>
-                      <Icon name="check" size={15} />
-                      <span>Reposição de estoque e clientes inativos</span>
-                    </li>
-                  </ul>
-                </Revelar>
-              </div>
-            </div>
-
-            <Janela />
-          </div>
-        </div>
-      </section>
-
-      {/* ------------------------------------------------ como funciona */}
-      <section id="como-funciona" className="lp-secao">
-        <div className="lp-wrap">
-          <SectionHeader
-            centralizado
-            sobretitulo="Como funciona"
-            titulo="Três passos até o primeiro número no painel"
-            texto="Nenhum deles exige consultor, migração de planilha ou treinamento."
-          />
-          <div className="lp-passos">
-            {PASSOS.map((p, i) => (
-              <Revelar key={p.numero} atraso={i * 110}>
-                <StepCard {...p} />
-              </Revelar>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* --------------------------------------------------- benefícios */}
-      <section id="beneficios" className="lp-secao">
-        <div className="lp-wrap">
-          <SectionHeader
-            centralizado
-            sobretitulo="Benefícios"
-            titulo="O que muda na rotina de quem toca o negócio"
-          />
-          <div className="lp-beneficios-grade">
-            {BENEFICIOS.map((b, i) => (
-              <Revelar key={b.titulo} atraso={(i % 3) * 90} variante="escala">
-                <BenefitCard {...b} />
-              </Revelar>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ----------------------------------------------------- para quem */}
-      <section id="para-quem" className="lp-secao">
-        <div className="lp-wrap">
-          <SectionHeader
-            centralizado
-            sobretitulo="Para quem é"
-            titulo="Feito para empresa pequena de verdade"
-            texto="Quem tem uma equipe de gestão dedicada já tem ERP. O Sócio Digital é para quem acumula a operação e a decisão na mesma pessoa."
-          />
-          <div className="lp-publicos">
-            {PUBLICO.map((p, i) => (
-              <Revelar key={p.titulo} atraso={(i % 3) * 80}>
-                <AudienceCard {...p} />
-              </Revelar>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* ------------------------------------------------------ segurança */}
-      <section id="seguranca" className="lp-secao lp-feature">
-        <div className="lp-wrap">
-          <div className="lp-feature-grade">
-            <div className="lp-feature-texto">
-              <div className="lp-veu">
-                <Revelar variante="fade">
-                  <div className="lp-sobretitulo">
-                    <Icon name="shield" size={14} /> Segurança
-                  </div>
-                </Revelar>
-                <Revelar atraso={70}>
-                  <h2 className="lp-h2">Os seus dados ficam separados e a sua senha, ilegível.</h2>
-                </Revelar>
-                <Revelar atraso={120}>
-                  <p className="lp-texto">
-                    Abaixo está o que o sistema faz hoje, descrito sem eufemismo. Não há
-                    certificação de terceiro a exibir — quando houver, ela aparece aqui.
-                  </p>
-                </Revelar>
-
-                <div className="lp-seguranca-lista">
-                  {SEGURANCA.map((s, i) => (
-                    <Revelar key={s.titulo} atraso={150 + i * 80}>
-                      <article className="lp-seguranca-item">
-                        <span>
-                          <Icon name={s.icone} size={17} />
-                        </span>
-                        <div>
-                          <h3>{s.titulo}</h3>
-                          <p>{s.texto}</p>
-                        </div>
-                      </article>
-                    </Revelar>
-                  ))}
-                </div>
-              </div>
-            </div>
-
-            <Janela />
-          </div>
-        </div>
-      </section>
-
-      {/* ------------------------------------------------------------ FAQ */}
-      <section id="faq" className="lp-secao">
-        <div className="lp-wrap lp-wrap-estreito">
-          <SectionHeader
-            centralizado
-            sobretitulo="FAQ"
-            titulo="Perguntas frequentes"
-            texto="As respostas descrevem o sistema como ele está hoje."
-          />
-          <FAQ itens={PERGUNTAS} />
-        </div>
-      </section>
-
-      {/* ------------------------------------------------------ CTA final */}
-      <CTASection
-        titulo="Comece pela tela de vendas. O resto o sistema preenche sozinho."
-        texto="Crie a conta em menos de um minuto ou entre na demonstração, que já vem com produtos, clientes, vendas, títulos e notas para você navegar por tudo antes de cadastrar a sua empresa."
-        rodape="Sem cartão de crédito. Sem instalação."
-      />
-
+    <div className="sd">
+      <Topo />
+      <main>
+        <Hero />
+        <Cascata />
+      </main>
       <Rodape />
     </div>
   );

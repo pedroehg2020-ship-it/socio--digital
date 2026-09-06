@@ -1,974 +1,525 @@
-/* ==========================================================================
-   Sócio Digital — página pública
-
-   MODELO DE CAMADAS (a parte que resolve o problema de "figura por cima do
-   texto"). Existem exatamente três planos, e a ordem é estrutural:
-
-     z-index 0  → .lp-fundo   (base de cor em CSS)
-     z-index 0  → .lp-palco   (canvas WebGL, pointer-events: none)
-     z-index 1+ → todo o conteúdo
-
-   Nenhum objeto 3D pode subir acima do conteúdo porque o canvas inteiro está
-   embaixo dele, e nenhum clique se perde porque o canvas não recebe evento.
-   A composição entre HTML e WebGL é feita pelo enquadramento da câmera: cada
-   seção deixa metade da tela livre (.lp-janela) e a câmera manda a cena
-   justamente para aquele lado.
-
-   COR: base azul-marinho quase preta, ciano como energia, azul para volume,
-   violeta e verde só como acento. Nenhuma seção clara — a página é um
-   ambiente noturno do começo ao fim, e é isso que dá unidade à viagem.
-   ========================================================================== */
-
-.lp-root {
-  /* ------------------------------------------------------------- energia */
-  --ciano-100: #cffafe;
-  --ciano-200: #a5f3fc;
-  --ciano-300: #67e8f9;
-  --ciano: #22d3ee;
-  --ciano-600: #06b6d4;
-  --ciano-700: #0e7490;
-
-  --azul-200: #bfdbfe;
-  --azul-300: #93c5fd;
-  --azul-400: #60a5fa;
-  --azul: #3b82f6;
-  --azul-600: #2563eb;
-
-  --violeta: #8b5cf6;
-  --verde: #34d399;
-  --ambar: #fbbf24;
-
-  /* --------------------------------------------------------- escala base */
-  --vazio: #02060f;
-  --abismo: #040b1c;
-  --casco: #0a1430;
-  --casco-2: #101d42;
-  --linha: rgba(148, 187, 255, 0.14);
-  --linha-forte: rgba(148, 187, 255, 0.3);
-
-  --claro: #e8f2ff;
-  --claro-2: #a9bfe0;
-  --claro-3: #7c93b8;
-
-  --r: 16px;
-  --r-lg: 24px;
-  --r-xl: 32px;
-
-  --sombra-2: 0 14px 40px -18px rgba(0, 0, 0, 0.8);
-  --sombra-3: 0 36px 90px -38px rgba(0, 0, 0, 0.95);
-  --brilho: 0 0 0 1px rgba(34, 211, 238, 0.28), 0 20px 56px -22px rgba(34, 211, 238, 0.7);
-
-  position: relative;
-  background: var(--vazio);
-  color: var(--claro);
-  overflow-x: hidden;
-}
-
-/* ---------------------------------------------------------- fundo em CSS */
-
 /**
- * Base de cor que fica sempre presente, atrás do canvas. Quando não há WebGL
- * ela assume a página sozinha: a aurora continua se movendo e a grade continua
- * dando profundidade, então o visitante recebe um ambiente, não um vazio.
- */
-.lp-fundo {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    /* céu de manhã, na mesma família da névoa da cena 3D: sem WebGL o
-       visitante vê um ambiente coerente, não um fundo de outra paleta */
-    /* fallback sem WebGL: o mesmo azul-marinho profundo da cena, com dois
-       focos de energia — coerente com o campo, nunca preto puro */
-    radial-gradient(1100px 760px at 72% 6%, rgba(95, 216, 245, 0.14), transparent 62%),
-    radial-gradient(900px 640px at 12% 74%, rgba(160, 108, 240, 0.12), transparent 64%),
-    linear-gradient(176deg, #070d1c 0%, #0a1428 44%, #0d1a33 100%);
-}
-
-.lp-fundo-aurora,
-.lp-fundo-grade {
-  position: absolute;
-  inset: 0;
-  display: block;
-}
-
-.lp-fundo-aurora {
-  background:
-    radial-gradient(700px 520px at 24% 28%, rgba(95, 216, 245, 0.2), transparent 66%),
-    radial-gradient(620px 460px at 80% 72%, rgba(160, 108, 240, 0.16), transparent 68%);
-  opacity: 0.6;
-  animation: lp-aurora 26s ease-in-out infinite alternate;
-}
-
-.lp-fundo-grade {
-  background-image:
-    linear-gradient(rgba(22, 35, 61, 0.05) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(22, 35, 61, 0.05) 1px, transparent 1px);
-  background-size: 76px 76px;
-  mask-image: radial-gradient(ellipse 84% 66% at 50% 40%, #000 12%, transparent 76%);
-  -webkit-mask-image: radial-gradient(ellipse 84% 66% at 50% 40%, #000 12%, transparent 76%);
-}
-
-/* Sem WebGL a aurora fica mais viva — é ela que sustenta a página sozinha. */
-.lp-root.sem-3d .lp-fundo-aurora { opacity: 0.9; }
-
-@keyframes lp-aurora {
-  0% { transform: translate3d(-3%, -2%, 0) scale(1.05); }
-  100% { transform: translate3d(4%, 3%, 0) scale(1.16); }
-}
-
-/* --------------------------------------------------------------- palco 3D */
-
-.lp-palco {
-  position: fixed;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-}
-.lp-palco canvas {
-  display: block;
-  pointer-events: none !important;
-  touch-action: auto !important;
-}
-
-/* --------------------------------------------------------------- janelas */
-
-/**
- * Espaço reservado para o mundo. Não pinta nada: só garante que a coluna
- * exista no grid e que a cena tenha metade da tela para ocupar.
- */
-.lp-janela { width: 100%; pointer-events: none; }
-.lp-janela-alta { min-height: 76vh; max-height: 780px; }
-.lp-janela-media { min-height: 62vh; max-height: 640px; }
-
-/* ----------------------------------------------------------- zona segura */
-
-/**
- * APOIO DE LEITURA.
+ * Landing pública — hero e cascata.
  *
- * A versão anterior usava um gradiente RADIAL escuro atrás de cada bloco de
- * texto. Numa cena escura aquilo passava despercebido; com a cena clara de
- * manhã ele virou um disco preto no meio do quadro — exatamente o "resolver
- * com uma camada preta por cima" que a direção de arte proíbe. Saiu inteiro.
+ * REGRA ESTRUTURAL DESTE ARQUIVO: texto e visual nunca compartilham espaço.
+ * Não é resolvido com z-index, camada escura ou máscara. É resolvido por
+ * GRID: cada um ocupa faixas de coluna diferentes, e nenhum elemento usa
+ * `position: absolute` para sair da própria faixa. Em coluna única (mobile),
+ * viram blocos empilhados — e o texto vem primeiro.
  *
- * No lugar entra um apoio LATERAL, ancorado à borda da janela e alinhado ao
- * lado onde o texto está. Três diferenças que importam:
- *
- *   · é linear e sai da borda, então nunca tem centro visível nem contorno;
- *   · cobre só a metade que a câmera já reservou para o texto, deixando a
- *     metade da cena completamente limpa;
- *   · é fraco (topo em 0,42) porque o trabalho pesado é da composição — a
- *     mira fora do eixo já mantém os objetos do outro lado. Este apoio existe
- *     apenas para o caso de a cena clarear atrás das letras.
- *
- * `--apoio` é a cor: o azul-marinho da marca, não preto puro. Preto sobre uma
- * cena de manhã lê como sujeira; o marinho lê como sombra.
+ * Se algum dia for preciso um efeito que só funcione atravessando a coluna do
+ * texto, a resposta é remover o efeito.
  */
-:root {
-  --apoio: 5, 10, 22;
-}
 
-.lp-veu { position: relative; }
+@import "./sistema.css";
 
-/* padrão: texto à esquerda — o apoio sai da borda esquerda */
-.lp-veu::before {
-  content: "";
-  position: absolute;
-  inset: -10% -18% -10% -50vw;
-  z-index: -1;
-  pointer-events: none;
-  background: linear-gradient(
-    to right,
-    rgba(var(--apoio), 0.62) 0%,
-    rgba(var(--apoio), 0.44) 52%,
-    rgba(var(--apoio), 0.18) 82%,
-    rgba(var(--apoio), 0) 100%
-  );
-}
-
-/* seções invertidas: texto à direita, o apoio espelha */
-.lp-feature-grade.invertida .lp-veu::before {
-  inset: -10% -50vw -10% -18%;
-  background: linear-gradient(
-    to left,
-    rgba(var(--apoio), 0.62) 0%,
-    rgba(var(--apoio), 0.44) 52%,
-    rgba(var(--apoio), 0.18) 82%,
-    rgba(var(--apoio), 0) 100%
-  );
-}
-
-/**
- * Blocos centralizados (hero centralizado, como-funciona, CTA). Aqui não há
- * "lado", então o apoio é vertical e sobe do rodapé do bloco — a cena fica
- * limpa em cima, que é onde o céu e as torres têm mais informação.
- */
-.lp-cabecalho.centro .lp-veu::before,
-.lp-cta .lp-veu::before {
-  inset: -8% -30vw -12% -30vw;
-  background: linear-gradient(
-    to top,
-    rgba(var(--apoio), 0.62) 0%,
-    rgba(var(--apoio), 0.48) 58%,
-    rgba(var(--apoio), 0) 100%
-  );
-}
-
-/**
- * Reforço mínimo no próprio texto. Uma sombra de 1 px custa nada e cobre o
- * caso em que um realce do vidro passa exatamente atrás de uma linha — sem
- * escurecer um pixel sequer da cena.
- */
-.lp-veu h1,
-.lp-veu h2,
-.lp-veu p,
-.lp-veu li {
-  text-shadow: 0 1px 10px rgba(var(--apoio), 0.55);
-}
-
-/* -------------------------------------------------------------- estrutura */
-
-.lp-wrap {
-  max-width: 1220px;
-  margin: 0 auto;
-  padding: 0 28px;
-  width: 100%;
-}
-.lp-wrap-estreito { max-width: 860px; }
-
-.lp-secao {
-  position: relative;
-  z-index: 1;
-  padding: 132px 0;
-}
-
-/* ------------------------------------------------------------ tipografia */
-
-.lp-root h1,
-.lp-root h2,
-.lp-root h3 {
-  font-family: "Outfit", "IBM Plex Sans", sans-serif;
-  letter-spacing: -0.028em;
-  margin: 0;
-}
-
-.lp-sobretitulo {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 6px 14px 6px 11px;
-  border-radius: 999px;
-  background: rgba(34, 211, 238, 0.1);
-  border: 1px solid rgba(34, 211, 238, 0.3);
-  font-size: 11.5px;
-  font-weight: 600;
-  letter-spacing: 0.13em;
-  text-transform: uppercase;
-  color: var(--ciano-300);
-  margin-bottom: 20px;
-}
-
-.lp-h2 {
-  font-size: clamp(30px, 3.5vw, 46px);
-  line-height: 1.1;
-  max-width: 20ch;
-}
-.lp-cabecalho.centro .lp-h2 { max-width: 22ch; }
-
-.lp-frase {
-  font-size: clamp(18px, 1.5vw, 21px);
-  line-height: 1.45;
-  font-weight: 600;
-  margin: 18px 0 0;
-  max-width: 32ch;
-  background: linear-gradient(96deg, var(--ciano-200), var(--azul-300));
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.lp-texto {
-  font-size: 16.5px;
-  line-height: 1.72;
-  color: var(--claro-2);
-  margin: 18px 0 0;
-  max-width: 48ch;
-}
-
-.lp-sub {
-  font-size: 17px;
-  line-height: 1.68;
-  color: var(--claro-2);
-  margin: 18px 0 0;
-  max-width: 58ch;
-}
-
-.lp-cabecalho { margin-bottom: 58px; }
-.lp-cabecalho.centro {
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-}
-.lp-cabecalho.centro .lp-veu { display: flex; flex-direction: column; align-items: center; }
-
-/* ----------------------------------------------------------------- botões */
-
-.lp-btn {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 9px;
-  border: 1px solid transparent;
-  border-radius: 13px;
-  padding: 12px 22px;
-  font-size: 14.5px;
-  font-weight: 600;
-  font-family: "Outfit", "IBM Plex Sans", sans-serif;
-  cursor: pointer;
-  white-space: nowrap;
-  transition: transform 0.2s cubic-bezier(0.22, 0.8, 0.3, 1), box-shadow 0.2s ease,
-    background 0.2s ease, border-color 0.2s ease, color 0.2s ease;
-}
-.lp-btn:active { transform: translateY(1px) scale(0.99); }
-.lp-btn-sm { padding: 9px 16px; font-size: 13.5px; border-radius: 11px; }
-.lp-btn-lg { padding: 16px 30px; font-size: 16px; border-radius: 15px; }
-.lp-btn-bloco { width: 100%; }
-
-.lp-btn-principal {
-  background: linear-gradient(135deg, var(--ciano-600) 0%, var(--ciano) 50%, var(--azul-400) 100%);
-  color: #041826;
-  box-shadow: var(--brilho);
-}
-.lp-btn-principal:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 0 0 1px rgba(34, 211, 238, 0.45), 0 28px 64px -22px rgba(34, 211, 238, 0.9);
-}
-
-.lp-btn-vidro {
-  background: rgba(148, 187, 255, 0.08);
-  border-color: rgba(148, 187, 255, 0.24);
-  color: #fff;
-  backdrop-filter: blur(12px);
-}
-.lp-btn-vidro:hover {
-  background: rgba(148, 187, 255, 0.16);
-  border-color: rgba(148, 187, 255, 0.46);
-  transform: translateY(-3px);
-}
-
-.lp-btn-texto { color: inherit; padding: 9px 13px; }
-.lp-btn-texto:hover { color: var(--ciano-300); }
-
-.lp-botoes { display: flex; flex-wrap: wrap; gap: 13px; margin-top: 34px; }
-
-.lp-link-cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 30px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--ciano-300);
-  border-bottom: 1px solid transparent;
-  transition: border-color 0.2s ease, gap 0.2s ease;
-}
-.lp-link-cta:hover { border-color: var(--ciano); gap: 13px; }
-
-/* -------------------------------------------------------------- cabeçalho */
+/* ======================================================= topo ===== */
 
 .lp-topo {
   position: sticky;
   top: 0;
-  z-index: 60;
+  z-index: 20;
+  background: rgba(246, 247, 249, 0.86);
+  backdrop-filter: saturate(180%) blur(10px);
   border-bottom: 1px solid transparent;
-  color: #fff;
-  transition: background 0.3s ease, border-color 0.3s ease, backdrop-filter 0.3s ease;
+  transition: border-color var(--medio) var(--curva);
 }
-.lp-topo.rolado {
-  background: rgba(2, 6, 15, 0.72);
-  backdrop-filter: blur(20px) saturate(150%);
-  border-bottom-color: var(--linha);
+.lp-topo-fixo {
+  border-bottom-color: var(--borda);
 }
-.lp-topo-inner {
-  max-width: 1220px;
-  margin: 0 auto;
-  padding: 15px 28px;
+.lp-topo-interno {
   display: flex;
   align-items: center;
-  gap: 20px;
+  justify-content: space-between;
+  height: 68px;
 }
-
-.lp-marca { display: inline-flex; align-items: center; gap: 11px; font-family: "Outfit", sans-serif; font-size: 16px; }
-.lp-marca-selo {
-  width: 35px;
-  height: 35px;
-  border-radius: 11px;
-  background: linear-gradient(135deg, var(--ciano-300), var(--azul-600));
-  display: grid;
-  place-items: center;
-  color: #04122a;
-  font-weight: 700;
-  font-size: 13px;
-  font-family: "Outfit", sans-serif;
-  flex-shrink: 0;
-  box-shadow: 0 8px 26px -10px rgba(34, 211, 238, 0.9);
-}
-
-.lp-menu { display: flex; gap: 3px; margin-left: auto; }
-.lp-menu a {
-  padding: 9px 14px;
-  border-radius: 10px;
-  font-size: 14px;
-  color: var(--claro-2);
-  transition: color 0.2s ease, background 0.2s ease;
-}
-.lp-menu a:hover { color: #fff; background: rgba(148, 187, 255, 0.09); }
-
-.lp-topo-acoes { display: flex; align-items: center; gap: 8px; }
-
-.lp-topo-hamburguer {
-  display: none;
-  margin-left: auto;
-  background: rgba(148, 187, 255, 0.1);
-  border: 1px solid rgba(148, 187, 255, 0.2);
-  color: #fff;
-  border-radius: 11px;
-  padding: 9px;
-  cursor: pointer;
-}
-
-.lp-menu-mobile {
-  position: relative;
-  z-index: 70;
-  background: rgba(2, 6, 15, 0.97);
-  backdrop-filter: blur(18px);
-  border-top: 1px solid var(--linha);
-  padding: 12px 22px 24px;
-  display: flex;
-  flex-direction: column;
-}
-.lp-menu-mobile a {
-  padding: 14px 4px;
-  font-size: 16px;
-  color: var(--claro-2);
-  border-bottom: 1px solid var(--linha);
-}
-.lp-menu-mobile-acoes { display: flex; flex-direction: column; gap: 10px; margin-top: 20px; }
-
-/* ------------------------------------------------------------------ hero */
-
-.lp-hero {
-  position: relative;
-  z-index: 1;
-  margin-top: -73px;
-  padding: 178px 0 96px;
-}
-
-.lp-hero-grade {
-  display: grid;
-  grid-template-columns: 1.04fr 0.96fr;
-  gap: 40px;
-  align-items: center;
-}
-
-.lp-hero-texto { position: relative; }
-
-.lp-hero h1 {
-  font-size: clamp(36px, 5vw, 62px);
-  line-height: 1.02;
-  max-width: 15ch;
-}
-.lp-hero h1 em {
-  font-style: normal;
-  background: linear-gradient(100deg, var(--ciano-200) 0%, var(--ciano) 40%, var(--azul-400) 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-.lp-lead {
-  font-size: 18px;
-  line-height: 1.62;
-  color: var(--claro-2);
-  max-width: 44ch;
-  margin: 24px 0 0;
-}
-
-.lp-selo {
+.lp-marca {
   display: inline-flex;
   align-items: center;
-  gap: 9px;
-  padding: 8px 17px;
-  border-radius: 999px;
-  background: rgba(148, 187, 255, 0.07);
-  border: 1px solid rgba(148, 187, 255, 0.18);
-  font-size: 12.5px;
-  color: var(--ciano-300);
-  backdrop-filter: blur(12px);
+  gap: var(--e-2);
+  font-weight: 640;
+  font-size: var(--t-md);
+  letter-spacing: -0.02em;
+  color: var(--tinta-900);
+  text-decoration: none;
 }
-
-.lp-confianca { list-style: none; padding: 0; margin: 30px 0 0; display: flex; flex-wrap: wrap; gap: 9px 24px; }
-.lp-confianca li { display: inline-flex; align-items: center; gap: 8px; font-size: 13.4px; color: var(--claro-3); }
-.lp-confianca svg { color: var(--ciano); }
-
-.lp-indicadores {
+.lp-marca-simbolo {
+  width: 24px;
+  height: 24px;
+  border-radius: var(--raio-sm);
+  background: var(--marinho-800);
   position: relative;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 14px;
-  margin-top: 70px;
 }
-.lp-indicador {
-  position: relative;
-  background: rgba(10, 20, 48, 0.55);
-  border: 1px solid var(--linha);
-  border-radius: var(--r);
-  padding: 20px;
-  backdrop-filter: blur(16px);
-  overflow: hidden;
-  transition: transform 0.24s ease, border-color 0.24s ease;
-}
-.lp-indicador::before {
+/* Marca d'água do símbolo: um filete teal, sem gradiente nem brilho. */
+.lp-marca-simbolo::after {
   content: "";
   position: absolute;
-  inset: 0 0 auto 0;
+  left: 6px;
+  right: 6px;
+  bottom: 7px;
   height: 2px;
-  background: linear-gradient(90deg, transparent, var(--ciano), transparent);
-  opacity: 0.8;
+  border-radius: 1px;
+  background: var(--teal-500);
 }
-.lp-indicador:hover { transform: translateY(-4px); border-color: rgba(34, 211, 238, 0.4); }
-.lp-indicador b { display: block; font-size: 28px; font-family: "Outfit", sans-serif; color: #fff; }
-.lp-indicador span { font-size: 12.4px; color: var(--claro-3); }
-
-.lp-dica-rolagem { position: absolute; left: 50%; bottom: 26px; transform: translateX(-50%); z-index: 2; }
-.lp-dica-rolagem i {
-  display: block;
-  width: 23px;
-  height: 36px;
-  border: 1.5px solid rgba(148, 187, 255, 0.3);
-  border-radius: 12px;
-  position: relative;
+.lp-topo-acoes {
+  display: flex;
+  align-items: center;
+  gap: var(--e-3);
 }
-.lp-dica-rolagem i::after {
-  content: "";
-  position: absolute;
-  left: 50%;
-  top: 7px;
-  width: 3px;
-  height: 8px;
-  margin-left: -1.5px;
-  border-radius: 2px;
-  background: var(--ciano);
-  animation: lp-rolar 1.9s ease-in-out infinite;
+.lp-link {
+  font-size: var(--t-sm);
+  font-weight: 520;
+  color: var(--tinta-700);
+  text-decoration: none;
+  padding: var(--e-2) var(--e-3);
+  border-radius: var(--raio-sm);
 }
-@keyframes lp-rolar {
-  0% { transform: translateY(0); opacity: 1; }
-  70% { transform: translateY(12px); opacity: 0; }
-  100% { transform: translateY(0); opacity: 0; }
+.lp-link:hover {
+  color: var(--tinta-900);
+  background: rgba(13, 21, 38, 0.04);
 }
 
-/* ---------------------------------------------------- cartões em vidro */
+/* ======================================================= hero ===== */
+
+.hero {
+  padding: var(--e-10) 0 var(--e-9);
+}
+
+.hero-grid {
+  align-items: center;
+}
 
 /**
- * Todos os cartões da página compartilham este vidro. Como o mundo passa por
- * trás deles, o fundo precisa ser translúcido o bastante para deixar a cena
- * viva e opaco o bastante para o texto sobreviver a qualquer quadro.
+ * As duas faixas. Entre a coluna 5 e a 7 existe a coluna 6 inteira vazia:
+ * é a calha que garante que o painel jamais encoste no texto, mesmo com o
+ * conteúdo crescendo.
  */
-.lp-pilar,
-.lp-passo,
-.lp-beneficio,
-.lp-publico,
-.lp-seguranca-item,
-.lp-faq-item {
-  background: linear-gradient(158deg, rgba(16, 29, 66, 0.72), rgba(4, 11, 28, 0.66));
-  border: 1px solid var(--linha);
-  backdrop-filter: blur(14px);
-}
-
-/* --------------------------------------------------------------- pilares */
-
-.lp-pilares { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-.lp-pilares > .revelar { height: 100%; }
-.lp-pilar {
-  position: relative;
-  height: 100%;
-  border-radius: var(--r-lg);
-  padding: 32px 28px;
-  overflow: hidden;
-  transition: transform 0.26s cubic-bezier(0.22, 0.8, 0.3, 1), border-color 0.26s ease, box-shadow 0.26s ease;
-}
-.lp-pilar::after {
-  content: "";
-  position: absolute;
-  inset: auto -30% -60% -30%;
-  height: 160px;
-  background: radial-gradient(ellipse at 50% 0%, rgba(47, 92, 149, 0.18), transparent 70%);
-  opacity: 0;
-  transition: opacity 0.3s ease;
-}
-.lp-pilar:hover { transform: translateY(-6px); border-color: rgba(34, 211, 238, 0.36); box-shadow: var(--sombra-3); }
-.lp-pilar:hover::after { opacity: 1; }
-.lp-pilar-icone {
-  position: relative;
-  width: 46px;
-  height: 46px;
-  border-radius: 14px;
-  display: grid;
-  place-items: center;
-  color: #041826;
-  background: linear-gradient(135deg, var(--ciano-300), var(--azul-600));
-  margin-bottom: 20px;
-  box-shadow: 0 12px 32px -14px rgba(34, 211, 238, 0.95);
-}
-.lp-pilar h3 { font-size: 19px; margin-bottom: 10px; }
-.lp-pilar p { margin: 0; font-size: 15px; line-height: 1.66; color: var(--claro-2); }
-
-/* ------------------------------------------------------ seção de recurso */
-
-.lp-feature-grade {
-  display: grid;
-  grid-template-columns: 0.94fr 1.06fr;
-  gap: 56px;
-  align-items: center;
-}
-.lp-feature-grade.invertida { grid-template-columns: 1.06fr 0.94fr; }
-.lp-feature-grade.invertida .lp-feature-texto { order: 2; }
-.lp-feature-grade.invertida .lp-janela { order: 1; }
-
-.lp-feature-texto { position: relative; z-index: 2; }
-
-.lp-beneficios { list-style: none; padding: 0; margin: 30px 0 0; display: grid; gap: 13px; }
-.lp-beneficios li {
+.hero-texto {
+  grid-column: 1 / span 5;
   display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  font-size: 15.2px;
-  line-height: 1.52;
-  color: var(--claro);
+  flex-direction: column;
+  gap: var(--e-5);
+  /* impede que qualquer coisa dentro da coluna transborde para a calha */
+  min-width: 0;
 }
-.lp-beneficios svg { color: var(--ciano); flex-shrink: 0; margin-top: 2px; }
 
-/* ----------------------------------------------------------------- passos */
+.hero-produto {
+  grid-column: 7 / span 6;
+  min-width: 0;
+}
 
-.lp-passos { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
-.lp-passos > .revelar { height: 100%; }
-.lp-passo {
-  position: relative;
-  height: 100%;
-  border-radius: var(--r-lg);
-  padding: 34px 28px;
-  transition: transform 0.26s ease, border-color 0.26s ease;
-}
-.lp-passo:hover { transform: translateY(-6px); border-color: rgba(34, 211, 238, 0.34); }
-.lp-passo-num {
-  display: grid;
-  place-items: center;
-  width: 42px;
-  height: 42px;
-  border-radius: 13px;
-  background: linear-gradient(135deg, var(--ciano-300), var(--azul-600));
-  color: #041826;
-  font-family: "Outfit", sans-serif;
-  font-weight: 700;
-  font-size: 17px;
-  margin-bottom: 20px;
-  box-shadow: 0 12px 30px -14px rgba(34, 211, 238, 0.9);
-}
-.lp-passo h3 { font-size: 19px; margin-bottom: 10px; }
-.lp-passo p { margin: 0; font-size: 15px; line-height: 1.66; color: var(--claro-2); }
-
-/* ------------------------------------------------------------ benefícios */
-
-.lp-beneficios-grade {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 18px;
-}
-.lp-beneficios-grade > .revelar { height: 100%; }
-
-.lp-beneficio {
-  height: 100%;
-  border-radius: var(--r-lg);
-  padding: 28px 26px;
-  transition: transform 0.26s ease, box-shadow 0.26s ease, border-color 0.26s ease;
-}
-.lp-beneficio:hover {
-  transform: translateY(-6px);
-  box-shadow: var(--sombra-2);
-  border-color: rgba(34, 211, 238, 0.36);
-}
-.lp-beneficio-icone {
-  width: 42px;
-  height: 42px;
-  border-radius: 13px;
-  display: grid;
-  place-items: center;
-  color: #041826;
-  background: linear-gradient(135deg, var(--ciano), var(--azul-400));
-  margin-bottom: 18px;
-  box-shadow: 0 10px 26px -12px rgba(34, 211, 238, 0.85);
-}
-.lp-beneficio h3 { font-size: 17px; margin-bottom: 9px; color: #fff; }
-.lp-beneficio p { margin: 0; font-size: 14.6px; line-height: 1.64; color: var(--claro-2); }
-
-/* -------------------------------------------------------------- para quem */
-
-.lp-publicos { position: relative; z-index: 2; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
-.lp-publicos > .revelar { height: 100%; }
-
-.lp-publico {
-  height: 100%;
-  display: flex;
-  gap: 15px;
-  align-items: flex-start;
-  border-radius: var(--r);
-  padding: 22px;
-  transition: transform 0.24s ease, border-color 0.24s ease;
-}
-.lp-publico:hover { transform: translateY(-4px); border-color: rgba(59, 130, 246, 0.4); }
-.lp-publico-icone {
-  width: 38px;
-  height: 38px;
-  flex-shrink: 0;
-  border-radius: 11px;
-  display: grid;
-  place-items: center;
-  color: var(--azul-300);
-  background: rgba(59, 130, 246, 0.18);
-}
-.lp-publico h3 { font-size: 16px; margin-bottom: 6px; }
-.lp-publico p { margin: 0; font-size: 14px; line-height: 1.6; color: var(--claro-2); }
-
-/* -------------------------------------------------------------- segurança */
-
-.lp-seguranca-lista { display: grid; gap: 14px; margin-top: 32px; }
-.lp-seguranca-item {
-  display: flex;
-  gap: 15px;
-  align-items: flex-start;
-  border-radius: var(--r);
-  padding: 20px 22px;
-}
-.lp-seguranca-item > span {
-  width: 38px;
-  height: 38px;
-  flex-shrink: 0;
-  border-radius: 11px;
-  display: grid;
-  place-items: center;
-  color: var(--ciano-300);
-  background: rgba(34, 211, 238, 0.15);
-}
-.lp-seguranca-item h3 { font-size: 16px; margin-bottom: 6px; }
-.lp-seguranca-item p { margin: 0; font-size: 14.4px; line-height: 1.62; color: var(--claro-2); }
-
-/* -------------------------------------------------------------------- FAQ */
-
-.lp-faq { position: relative; z-index: 2; display: grid; gap: 11px; }
-.lp-faq-item {
-  border-radius: var(--r);
-  overflow: hidden;
-  transition: border-color 0.24s ease, box-shadow 0.24s ease;
-}
-.lp-faq-item.aberto { border-color: rgba(34, 211, 238, 0.45); box-shadow: var(--sombra-2); }
-.lp-faq-pergunta {
-  width: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 21px 24px;
-  background: none;
-  border: 0;
-  cursor: pointer;
-  text-align: left;
-  font-family: "Outfit", "IBM Plex Sans", sans-serif;
-  font-size: 16px;
-  font-weight: 600;
-  color: #fff;
-}
-.lp-faq-pergunta svg { color: var(--ciano); flex-shrink: 0; }
-.lp-faq-resposta {
-  display: grid;
-  grid-template-rows: 0fr;
-  transition: grid-template-rows 0.34s cubic-bezier(0.22, 0.75, 0.3, 1);
-}
-.lp-faq-item.aberto .lp-faq-resposta { grid-template-rows: 1fr; }
-.lp-faq-resposta > p {
-  overflow: hidden;
-  margin: 0;
-  padding: 0 24px;
-  font-size: 15px;
-  line-height: 1.7;
-  color: var(--claro-2);
-}
-.lp-faq-item.aberto .lp-faq-resposta > p { padding-bottom: 23px; }
-
-/* -------------------------------------------------------------- CTA final */
-
-.lp-cta-secao { padding: 150px 0 170px; }
-.lp-cta {
-  position: relative;
-  z-index: 2;
-  display: grid;
-  grid-template-columns: 1fr;
-  text-align: center;
-  justify-items: center;
-}
-.lp-cta .lp-veu { display: flex; flex-direction: column; align-items: center; }
-.lp-cta h2 {
-  font-size: clamp(32px, 4.2vw, 54px);
-  line-height: 1.06;
-  max-width: 18ch;
-}
-.lp-cta p {
-  margin: 22px 0 0;
-  font-size: 17px;
-  line-height: 1.66;
-  color: var(--claro-2);
-  max-width: 54ch;
-}
-.lp-cta .lp-botoes { justify-content: center; }
-.lp-cta-rodape { display: block; margin-top: 20px; font-size: 13px; color: var(--claro-3); }
-
-/* ---------------------------------------------------------------- rodapé */
-
-.lp-rodape {
-  position: relative;
-  z-index: 2;
-  background: linear-gradient(180deg, rgba(2, 6, 15, 0.86), var(--vazio) 40%);
-  color: var(--claro-3);
-  padding: 68px 0 28px;
-  border-top: 1px solid var(--linha);
-  backdrop-filter: blur(10px);
-}
-.lp-rodape-grade { display: grid; grid-template-columns: 1.6fr repeat(4, 1fr); gap: 36px; }
-.lp-rodape-marca { display: flex; flex-direction: column; gap: 11px; }
-.lp-rodape-marca b { color: #fff; font-family: "Outfit", sans-serif; font-size: 16px; }
-.lp-rodape-marca p { margin: 4px 0 0; font-size: 13.6px; line-height: 1.64; max-width: 34ch; }
-.lp-rodape h3 {
-  font-size: 12px;
-  letter-spacing: 0.11em;
-  text-transform: uppercase;
-  color: #fff;
-  margin-bottom: 15px;
-}
-.lp-rodape ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
-.lp-rodape a { font-size: 13.8px; transition: color 0.2s ease; }
-.lp-rodape a:hover { color: var(--ciano-300); }
-.lp-rodape-base {
+.hero-acoes {
   display: flex;
   flex-wrap: wrap;
+  gap: var(--e-3);
+  margin-top: var(--e-1);
+}
+
+.hero-ressalva {
+  margin-top: calc(var(--e-1) * -1);
+}
+
+/* ---------------------------------------------- painel do produto */
+
+/**
+ * Sem moldura. O painel não é um cartão branco com sombra em volta de um
+ * print — isso é o que faz um hero parecer template. Aqui ele é um conjunto
+ * de blocos assentados sobre uma superfície levemente distinta do fundo,
+ * separados por filetes de 1px. A profundidade vem de luminância e borda.
+ */
+/**
+ * O painel SANGRA até a borda da janela e perde a moldura.
+ *
+ * Na primeira versão ele era um retângulo branco com borda, raio e sombra —
+ * exatamente o "print dentro de um card gigante" que não se queria, e o
+ * arranjo mais batido que existe em landing de SaaS. Sem a moldura fechada e
+ * correndo para fora da margem, ele deixa de ser uma figura colada na página
+ * e passa a ser a página continuando. A silhueta de cartão some.
+ */
+.hero-painel {
+  background: var(--superficie);
+  border-top: 1px solid var(--borda);
+  border-bottom: 1px solid var(--borda);
+  border-left: 1px solid var(--borda);
+  overflow: hidden;
+}
+.hero-produto {
+  /* quando a janela é maior que o container, estende até a borda direita */
+  margin-right: min(0px, calc((var(--container) - 100vw) / 2 - var(--calha)));
+}
+
+.hero-painel-topo {
+  display: flex;
+  align-items: baseline;
   justify-content: space-between;
-  gap: 10px;
-  margin-top: 46px;
-  padding-top: 24px;
-  border-top: 1px solid var(--linha);
-  font-size: 12.6px;
+  padding: var(--e-4) var(--e-5);
+  border-bottom: 1px solid var(--borda);
+}
+.hero-painel-titulo {
+  font-size: var(--t-sm);
+  font-weight: 600;
+  color: var(--tinta-900);
+  letter-spacing: -0.01em;
 }
 
-/* --------------------------------------------------- revelação por scroll */
+/* Grade 2×2 desenhada com filetes, não com espaçamento entre cartões. */
+.hero-painel-grade {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+}
+.hero-indicador {
+  padding: var(--e-5);
+  border-right: 1px solid var(--borda);
+  border-bottom: 1px solid var(--borda);
+  min-width: 0;
+}
+.hero-indicador:nth-child(2n) {
+  border-right: none;
+}
+.hero-indicador:nth-last-child(-n + 2) {
+  border-bottom: none;
+}
 
-.lp-root .revelar {
+.hero-indicador-rotulo {
+  font-size: var(--t-xs);
+  font-weight: 560;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--tinta-400);
+  margin: 0 0 var(--e-2);
+}
+.hero-indicador-valor {
+  font-size: var(--t-xl);
+  font-weight: 600;
+  color: var(--tinta-900);
+  line-height: 1.2;
+}
+.hero-indicador-rodape {
+  display: flex;
+  align-items: center;
+  gap: var(--e-2);
+  margin-top: var(--e-3);
+  min-height: 22px;
+}
+
+/**
+ * Reserva de largura do número.
+ *
+ * A primeira versão empilhava dois blocos dentro de um `inline-block`, e o
+ * resultado era que a linha de base do conjunto saía errada: numa etapa como
+ * "28 → 27 un.", o valor caía uma linha abaixo do resto. A grade de célula
+ * única resolve — os dois filhos ocupam a MESMA célula, a largura é a do
+ * maior, a altura é de uma linha só, e a linha de base fica correta.
+ */
+.sd-numero {
+  display: inline-grid;
+  vertical-align: baseline;
+}
+.sd-numero-reserva,
+.sd-numero-valor {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+}
+.sd-numero-reserva {
+  visibility: hidden;
+}
+
+/* Curva de caixa: traço fino que se desenha uma vez e para. */
+.hero-curva {
+  display: block;
+  width: 100%;
+  height: 44px;
+  margin-top: var(--e-3);
+}
+.hero-curva-traco {
+  stroke-dasharray: 600;
+  stroke-dashoffset: 600;
+}
+.hero-curva-traco-ativo {
+  animation: hero-tracar 1400ms var(--curva) 300ms forwards;
+}
+@keyframes hero-tracar {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* ==================================================== cascata ===== */
+
+.cascata {
+  padding: var(--e-9) 0 var(--e-10);
+  border-top: 1px solid var(--borda);
+  background: var(--superficie-2);
+}
+
+.cascata-grid {
+  align-items: start;
+}
+
+.cascata-texto {
+  grid-column: 1 / span 4;
+  display: flex;
+  flex-direction: column;
+  gap: var(--e-4);
+  /* acompanha a leitura da cascata sem prender o scroll da página */
+  position: sticky;
+  top: 140px;
+  min-width: 0;
+}
+
+.cascata-lista {
+  grid-column: 6 / span 7;
+  position: relative;
+  margin: 0;
+  padding: 0 0 0 var(--e-6);
+  list-style: none;
+  min-width: 0;
+}
+
+/* ------------------------------------------------- fio de dados */
+
+/**
+ * O fio vive numa faixa de 1px à esquerda das etapas, dentro do padding da
+ * lista. Ele nunca entra na área de texto de ninguém.
+ */
+.cascata-fio {
+  position: absolute;
+  left: 5px;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: var(--borda-forte);
+}
+.cascata-fio-ativo {
+  position: absolute;
+  inset: 0;
+  background: var(--teal-600);
+  transform-origin: top;
+  transform: scaleY(0);
+  transition: transform 3400ms var(--curva-suave);
+}
+
+/* --------------------------------------------------- etapas */
+
+.cascata-etapa {
+  position: relative;
+  padding: var(--e-4) 0 var(--e-5);
   opacity: 0;
-  transition: opacity 0.78s cubic-bezier(0.22, 0.75, 0.3, 1),
-    transform 0.78s cubic-bezier(0.22, 0.75, 0.3, 1);
-  will-change: opacity, transform;
+  transform: translateY(6px);
+  transition: opacity var(--medio) var(--curva), transform var(--medio) var(--curva);
 }
-.lp-root .revelar-sobe { transform: translate3d(0, 40px, 0); }
-.lp-root .revelar-escala { transform: scale(0.93) translate3d(0, 22px, 0); }
-.lp-root .revelar-fade { transform: none; }
-.lp-root .revelar.visivel { opacity: 1; transform: none; }
-
-/* ------------------------------------------------------------- responsivo */
-
-/* Tablet: mantém a profundidade, com colunas menos extremas. */
-@media (max-width: 1180px) {
-  .lp-secao { padding: 110px 0; }
-  .lp-janela-alta { min-height: 60vh; }
-  .lp-janela-media { min-height: 50vh; }
-  .lp-feature-grade,
-  .lp-feature-grade.invertida { gap: 40px; }
+.cascata-etapa-acesa {
+  opacity: 1;
+  transform: none;
+}
+.cascata-etapa + .cascata-etapa {
+  border-top: 1px solid var(--borda);
 }
 
+/* Marco no fio. Vazado quando inativo, sólido quando a etapa acende. */
+.cascata-marco {
+  position: absolute;
+  left: calc(var(--e-6) * -1 + 1px);
+  top: calc(var(--e-4) + 7px);
+  width: 9px;
+  height: 9px;
+  border-radius: var(--raio-pill);
+  background: var(--superficie-2);
+  border: 1px solid var(--borda-forte);
+  transition: background var(--medio) var(--curva), border-color var(--medio) var(--curva);
+}
+.cascata-etapa-acesa .cascata-marco {
+  background: var(--teal-600);
+  border-color: var(--teal-600);
+}
+/* A origem da cascata ganha um anel: é de onde tudo parte. */
+.cascata-etapa-origem.cascata-etapa-acesa .cascata-marco {
+  box-shadow: 0 0 0 3px var(--teal-100);
+}
+
+.cascata-conteudo {
+  min-width: 0;
+}
+/**
+ * Grade de duas colunas em vez de flex com quebra. Com flex, valores como
+ * "28 → 27 un." quebravam no meio e o "+" de "+ R$ 8.900" caía sozinho numa
+ * linha. Aqui o valor tem coluna própria, alinhada à direita em todas as
+ * etapas — que é o que faz a coluna de números ler como coluna.
+ */
+.cascata-cabeca {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: baseline;
+  gap: var(--e-4);
+}
+.cascata-rotulo {
+  font-size: var(--t-md);
+  font-weight: 600;
+  color: var(--tinta-900);
+  letter-spacing: -0.012em;
+}
+.cascata-valor {
+  display: inline-flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: var(--e-2);
+  font-size: var(--t-lg);
+  font-weight: 600;
+  color: var(--tinta-900);
+  white-space: nowrap;
+}
+.cascata-antes {
+  color: var(--tinta-400);
+  font-weight: 500;
+  font-size: var(--t-md);
+}
+.cascata-seta {
+  color: var(--tinta-400);
+  font-size: var(--t-sm);
+}
+.cascata-sufixo {
+  font-size: var(--t-sm);
+  color: var(--tinta-500);
+  font-weight: 500;
+}
+.cascata-texto-valor {
+  font-size: var(--t-md);
+  font-weight: 560;
+  color: var(--teal-700);
+}
+.cascata-frase {
+  margin: var(--e-2) 0 0;
+  font-size: var(--t-sm);
+  color: var(--tinta-500);
+  max-width: 52ch;
+}
+
+/* ===================================================== rodapé ===== */
+
+.lp-rodape {
+  border-top: 1px solid var(--borda);
+  padding: var(--e-7) 0;
+  background: var(--fundo);
+}
+.lp-rodape-interno {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--e-4);
+  flex-wrap: wrap;
+}
+
+/* ================================================ responsivo ===== */
+
+/* Tablet: mantém duas faixas, com a calha reduzida. */
 @media (max-width: 1080px) {
-  .lp-menu, .lp-topo-acoes { display: none; }
-  .lp-topo-hamburguer { display: inline-grid; place-items: center; }
+  :root {
+    --calha: 24px;
+  }
+  .hero {
+    padding: var(--e-8) 0 var(--e-8);
+  }
+  .hero-texto {
+    grid-column: 1 / span 6;
+  }
+  .hero-produto {
+    grid-column: 7 / span 6;
+  }
+  .cascata-texto {
+    grid-column: 1 / span 5;
+  }
+  .cascata-lista {
+    grid-column: 6 / span 7;
+  }
+}
 
-  /**
-   * Uma coluna só. A janela do mundo passa a ficar ACIMA do texto em todas as
-   * seções — a câmera, em telas estreitas, também sobe o assunto na tela, e as
-   * duas coisas juntas mantêm cena e leitura separadas verticalmente.
-   */
-  .lp-hero-grade { grid-template-columns: 1fr; gap: 12px; }
-  .lp-hero-texto { order: 2; }
-  .lp-hero-grade .lp-janela { order: 1; }
-  .lp-hero h1, .lp-lead { max-width: none; }
-
-  .lp-feature-grade,
-  .lp-feature-grade.invertida { grid-template-columns: 1fr; gap: 20px; }
-  .lp-feature-grade .lp-feature-texto,
-  .lp-feature-grade.invertida .lp-feature-texto { order: 2; }
-  .lp-feature-grade .lp-janela,
-  .lp-feature-grade.invertida .lp-janela { order: 1; }
-
-  /* Em coluna única não existe "lado": o apoio vira vertical, como nos
-     blocos centralizados. */
-  .lp-veu::before,
-  .lp-feature-grade.invertida .lp-veu::before {
-    inset: -6% -20vw -10% -20vw;
-    background: linear-gradient(
-      to top,
-      rgba(var(--apoio), 0.66) 0%,
-      rgba(var(--apoio), 0.5) 60%,
-      rgba(var(--apoio), 0) 100%
-    );
+/**
+ * Mobile. Não é o desktop espremido: a estrutura muda.
+ *
+ *  · Coluna única, TEXTO PRIMEIRO e visual depois.
+ *  · O painel do hero passa a uma coluna, para o número nunca quebrar linha.
+ *  · O texto da cascata perde o `sticky` — em tela pequena, texto grudado
+ *    come metade da altura útil.
+ *  · O h1 desce de escala para caber em três linhas sem hifenizar.
+ */
+@media (max-width: 820px) {
+  :root {
+    --calha: 20px;
   }
 
-  .lp-pilares, .lp-passos, .lp-beneficios-grade, .lp-publicos { grid-template-columns: repeat(2, 1fr); }
-  .lp-rodape-grade { grid-template-columns: repeat(3, 1fr); }
-  .lp-rodape-marca { grid-column: 1 / -1; }
+  .hero {
+    padding: var(--e-7) 0 var(--e-8);
+  }
+  .hero-grid,
+  .cascata-grid {
+    grid-template-columns: 1fr;
+    gap: var(--e-7);
+  }
+  .hero-texto,
+  .hero-produto,
+  .cascata-texto,
+  .cascata-lista {
+    grid-column: 1 / -1;
+  }
+
+  .sd-h1 {
+    max-width: 18ch;
+  }
+  .sd-lead {
+    font-size: var(--t-md);
+  }
+
+  .hero-acoes {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .hero-btn-largo {
+    width: 100%;
+  }
+
+  /* Duas colunas também no celular: em uma só o painel virava uma tira de
+     quatro blocos altos, longa demais para caber num relance. */
+  .hero-painel-grade {
+    grid-template-columns: 1fr 1fr;
+  }
+  .hero-indicador {
+    padding: var(--e-4);
+  }
+  .hero-indicador-valor {
+    font-size: var(--t-lg);
+  }
+  .hero-produto {
+    margin-right: calc(var(--calha) * -1);
+  }
+  .hero-painel {
+    border-right: none;
+  }
+
+  .cascata {
+    padding: var(--e-8) 0;
+  }
+  .cascata-texto {
+    position: static;
+  }
+  .cascata-lista {
+    padding-left: var(--e-5);
+  }
+  .cascata-marco {
+    left: calc(var(--e-5) * -1 + 1px);
+  }
+  /* No celular o valor vai para baixo do rótulo, alinhado à esquerda: manter
+     as duas colunas espremeria o número contra a borda. */
+  .cascata-cabeca {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--e-1);
+  }
+  .cascata-valor {
+    justify-content: flex-start;
+  }
 }
 
-@media (max-width: 720px) {
-  .lp-wrap { padding: 0 18px; }
-  .lp-topo-inner { padding: 13px 18px; }
-  .lp-secao { padding: 78px 0; }
-  .lp-hero { padding: 132px 0 70px; }
-  .lp-cta-secao { padding: 100px 0 110px; }
-
-  /* A cena continua presente no celular, com menos área de pintura. */
-  .lp-janela-alta { min-height: 44vh; max-height: 420px; }
-  .lp-janela-media { min-height: 34vh; max-height: 340px; }
-
-  .lp-indicadores { grid-template-columns: repeat(2, 1fr); gap: 10px; margin-top: 44px; }
-  .lp-indicador { padding: 16px; }
-  .lp-indicador b { font-size: 23px; }
-
-  .lp-pilares, .lp-passos, .lp-beneficios-grade, .lp-publicos { grid-template-columns: 1fr; }
-  .lp-botoes .lp-btn { flex: 1 1 100%; }
-  .lp-dica-rolagem { display: none; }
-
-  .lp-rodape-grade { grid-template-columns: 1fr 1fr; }
-  .lp-rodape { padding: 50px 0 24px; }
-}
-
-/* ---------------------------------------------------- movimento reduzido */
-
-@media (prefers-reduced-motion: reduce) {
-  .lp-root .revelar { opacity: 1; transform: none; transition: none; }
-  .lp-dica-rolagem i::after { animation: none; }
-  .lp-fundo-aurora { animation: none; }
-  .lp-btn:hover,
-  .lp-pilar:hover,
-  .lp-passo:hover,
-  .lp-beneficio:hover,
-  .lp-publico:hover,
-  .lp-indicador:hover { transform: none; }
-  .lp-faq-resposta { transition: none; }
+@media (max-width: 420px) {
+  .lp-topo-acoes .lp-link {
+    display: none;
+  }
 }

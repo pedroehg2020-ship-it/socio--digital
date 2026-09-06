@@ -7,13 +7,11 @@
     "watch": "node build.mjs --watch"
   },
   "dependencies": {
-    "@react-three/fiber": "^8.18.0",
     "axios": "^1.7.7",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.2",
-    "recharts": "^2.12.7",
-    "three": "^0.166.1"
+    "recharts": "^2.12.7"
   },
   "devDependencies": {
     "esbuild": "^0.23.1",

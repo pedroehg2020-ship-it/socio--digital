@@ -1,0 +1,304 @@
+/**
+ * DESIGN SYSTEM — Sócio Digital
+ *
+ * Este arquivo é a única fonte de verdade de cor, espaço, tipo e elevação.
+ * Nenhum componente inventa valor próprio; todos consomem daqui. É o que faz
+ * a diferença entre "várias telas bonitas" e "um produto".
+ *
+ * Três decisões que valem explicação, porque são as que mais afetam a
+ * percepção de acabamento:
+ *
+ * 1. RAIO PEQUENO. O padrão é 6px, e o máximo em superfície grande é 10px.
+ *    Cantos muito arredondados são a assinatura visual do template SaaS
+ *    genérico — o mesmo bloco de 16px em tudo. Software financeiro sério usa
+ *    canto quase reto: transmite precisão, não simpatia.
+ *
+ * 2. SOMBRA QUASE INEXISTENTE. A profundidade vem de BORDA de 1px e de
+ *    superfícies com luminância ligeiramente diferente, não de sombra. Sombra
+ *    forte é o recurso de quem não tem hierarquia.
+ *
+ * 3. NÚMEROS TABULARES. Todo valor financeiro usa `font-variant-numeric:
+ *    tabular-nums`, que trava a largura de cada dígito. Sem isso o número
+ *    "dança" quando muda, e nada denuncia mais rápido um produto amador.
+ */
+
+:root {
+  /* ----------------------------------------------------------- marca */
+  /* Base: azul-marinho profundo. É a cor do texto forte e das superfícies
+     escuras — não é fundo de página. */
+  --marinho-900: #0b1222;
+  --marinho-800: #101a34;
+  --marinho-700: #1a2745;
+  --marinho-600: #2b3a5c;
+
+  /* Acento: teal dessaturado. Distante do azul-claro da categoria, e sóbrio
+     o bastante para não virar neon. Usado com parcimônia — em software
+     financeiro, cor de acento é sinal, não decoração. */
+  --teal-700: #0a625f;
+  --teal-600: #0d7a76;
+  --teal-500: #16a49a;
+  --teal-100: #d7ecea;
+  --teal-050: #eef7f6;
+
+  /* --------------------------------------------------------- neutros */
+  /* O fundo não é branco puro: branco puro sem estrutura achata a página e
+     tira qualquer sensação de camada. */
+  --fundo: #f6f7f9;
+  --superficie: #ffffff;
+  --superficie-2: #fbfcfd;
+  --borda: #e4e7ec;
+  --borda-forte: #d3d8e0;
+
+  --tinta-900: #0d1526;
+  --tinta-700: #3b4559;
+  --tinta-500: #667085;
+  --tinta-400: #8a92a6;
+
+  /* ---------------------------------------------------------- status */
+  --positivo: #2f7d5d;
+  --positivo-fundo: #e8f3ee;
+  --negativo: #a4483c;
+  --negativo-fundo: #f7ebe9;
+  --atencao: #99701f;
+  --atencao-fundo: #f7f0dd;
+
+  /* ------------------------------------------------------ tipografia */
+  --fonte: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /**
+   * Números: a MESMA família do texto, com os algarismos travados em largura
+   * por `tabular-nums`. Usar uma monoespaçada aqui foi um erro de leitura —
+   * ela separa o "R$" do valor, alarga tudo e dá ao número um ar de terminal
+   * em vez de relatório financeiro. Inter tem figuras tabulares; é só pedi-las.
+   */
+  --fonte-num: var(--fonte);
+
+  /* Escala tipográfica em razão ~1.25, ancorada em 16px. */
+  --t-xs: 0.75rem;
+  --t-sm: 0.875rem;
+  --t-md: 1rem;
+  --t-lg: 1.125rem;
+  --t-xl: 1.375rem;
+  --t-2xl: 1.75rem;
+  --t-3xl: 2.25rem;
+  --t-4xl: 3rem;
+  --t-5xl: 3.75rem;
+
+  /* --------------------------------------------------------- espaço */
+  /* Escala de 4px. Usar sempre um degrau; nunca um valor solto. */
+  --e-1: 4px;
+  --e-2: 8px;
+  --e-3: 12px;
+  --e-4: 16px;
+  --e-5: 24px;
+  --e-6: 32px;
+  --e-7: 48px;
+  --e-8: 64px;
+  --e-9: 96px;
+  --e-10: 128px;
+
+  /* ---------------------------------------------------------- forma */
+  --raio-sm: 4px;
+  --raio: 6px;
+  --raio-lg: 10px;
+  --raio-pill: 999px;
+
+  /* Elevação: três níveis, todos discretos. O nível 1 é praticamente só a
+     borda; o 3 é o máximo que a página permite. */
+  --sombra-1: 0 1px 2px rgba(13, 21, 38, 0.04);
+  --sombra-2: 0 1px 3px rgba(13, 21, 38, 0.06), 0 6px 16px rgba(13, 21, 38, 0.04);
+  --sombra-3: 0 2px 6px rgba(13, 21, 38, 0.07), 0 16px 40px rgba(13, 21, 38, 0.06);
+
+  /* -------------------------------------------------------- movimento */
+  /* Curvas: a de saída é mais rápida que a de entrada, que é como o
+     movimento parece "resolvido" em vez de mecânico. */
+  --curva: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --curva-suave: cubic-bezier(0.4, 0, 0.2, 1);
+  --rapido: 160ms;
+  --medio: 280ms;
+  --lento: 520ms;
+
+  /* ---------------------------------------------------------- layout */
+  --container: 1200px;
+  --calha: 32px;
+}
+
+/* ===================================================== base ===== */
+
+* {
+  box-sizing: border-box;
+}
+
+.sd {
+  background: var(--fundo);
+  color: var(--tinta-700);
+  font-family: var(--fonte);
+  font-size: var(--t-md);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+.sd-container {
+  width: 100%;
+  max-width: var(--container);
+  margin: 0 auto;
+  padding: 0 var(--calha);
+}
+
+/**
+ * O grid de 12 colunas. Texto e visual ocupam FAIXAS DIFERENTES dele — é
+ * assim que a zona do texto fica inviolável por construção, e não por
+ * z-index ou por camada escura atrás das letras. Nenhum filho usa
+ * `position: absolute` para escapar da própria faixa.
+ */
+.sd-grid {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: var(--calha);
+}
+
+/* ================================================ tipografia ===== */
+
+.sd-h1 {
+  font-size: clamp(2rem, 3.2vw, 2.9rem);
+  line-height: 1.06;
+  letter-spacing: -0.028em;
+  font-weight: 640;
+  color: var(--tinta-900);
+  margin: 0;
+  /* Largura de medida controlada: linha longa demais cansa e parece landing
+     de template. Entre 12 e 20 palavras por linha é o alvo. */
+  max-width: 22ch;
+  text-wrap: balance;
+}
+
+.sd-h2 {
+  font-size: clamp(1.75rem, 2.6vw, var(--t-3xl));
+  line-height: 1.15;
+  letter-spacing: -0.022em;
+  font-weight: 620;
+  color: var(--tinta-900);
+  margin: 0;
+  max-width: 20ch;
+}
+
+.sd-olho {
+  font-size: var(--t-xs);
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--teal-700);
+  margin: 0;
+}
+
+.sd-lead {
+  font-size: var(--t-lg);
+  line-height: 1.62;
+  color: var(--tinta-500);
+  margin: 0;
+  max-width: 44ch;
+}
+
+.sd-nota {
+  font-size: var(--t-sm);
+  color: var(--tinta-400);
+  margin: 0;
+}
+
+/** Todo valor financeiro passa por aqui. */
+.sd-num {
+  font-family: var(--fonte-num);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: "tnum" 1;
+  letter-spacing: -0.01em;
+}
+
+/* ==================================================== botões ===== */
+
+.sd-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--e-2);
+  height: 46px;
+  padding: 0 var(--e-5);
+  border-radius: var(--raio);
+  border: 1px solid transparent;
+  font-family: inherit;
+  font-size: var(--t-sm);
+  font-weight: 560;
+  letter-spacing: -0.005em;
+  cursor: pointer;
+  text-decoration: none;
+  white-space: nowrap;
+  transition: background var(--rapido) var(--curva),
+    border-color var(--rapido) var(--curva),
+    transform var(--rapido) var(--curva);
+}
+
+.sd-btn-principal {
+  background: var(--teal-600);
+  color: #fff;
+}
+.sd-btn-principal:hover {
+  background: var(--teal-700);
+}
+/* Deslocamento de 1px: perceptível como resposta, invisível como efeito. */
+.sd-btn-principal:active {
+  transform: translateY(1px);
+}
+
+.sd-btn-secundario {
+  background: var(--superficie);
+  border-color: var(--borda-forte);
+  color: var(--tinta-900);
+}
+.sd-btn-secundario:hover {
+  border-color: var(--tinta-400);
+  background: var(--superficie-2);
+}
+.sd-btn-secundario:active {
+  transform: translateY(1px);
+}
+
+.sd-btn:focus-visible,
+.sd-link:focus-visible {
+  outline: 2px solid var(--teal-600);
+  outline-offset: 2px;
+}
+
+/* =================================================== estados ===== */
+
+.sd-sinal {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px var(--e-2);
+  border-radius: var(--raio-sm);
+  font-size: var(--t-xs);
+  font-weight: 560;
+}
+.sd-sinal-pos {
+  color: var(--positivo);
+  background: var(--positivo-fundo);
+}
+.sd-sinal-neg {
+  color: var(--negativo);
+  background: var(--negativo-fundo);
+}
+.sd-sinal-ate {
+  color: var(--atencao);
+  background: var(--atencao-fundo);
+}
+
+/* ============================================ acessibilidade ===== */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
